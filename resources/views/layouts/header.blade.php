@@ -21,6 +21,36 @@
     main {
         flex: 1;
     }
+    .card {
+            cursor: pointer;
+            padding: 10px; /* Default padding */
+        }
+        .card-text {
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-align: center; /* Center text horizontally */
+            margin: 0; /* Remove any default margin */
+        }
+        @media (max-width: 576px) {
+            #back, #bac{
+                font-size:20px;
+                padding: 5px !important; 
+                text-align:center;/* Remove padding for mobile screens */
+            }
+        }
+        .btn-custom {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+        .table td, .table th {
+            white-space: nowrap; /* Prevent table data from wrapping */
+        }
+          @media (max-width: 576px) {
+            .hstack {
+              margin:0 40px 0 40px;
+            }
+            
+        }
 </style>
  
   <body class="bg-dark">

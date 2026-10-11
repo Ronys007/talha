@@ -1,4 +1,5 @@
 <h1 class="text-center text-light m-3">Kachha Order Bill</h1>
+<div class="table-responsive">
 <table class="text-white table table-bordered table-primary text-center">
     <tr>
         <th>Sr.No</th>
@@ -35,6 +36,7 @@
     </tr>
     @endforeach
 </table>
+</div>
 
 <!-- Modal Add Order -->
 <div class="modal fade" id="exampleModal2" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">

@@ -1,7 +1,7 @@
 @extends('layouts.main')
 
 @section('main-section')
-    <div class="row justify-content-center my-4">
+    <div class="row justify-content-center my-4" id="boxes">
         <div class="card col-3 m-2 p-3 text-center" onclick="pakkabill()" id="back" style="cursor:pointer;">Pakka Bill Inventory</div>
         <div class="card col-3 m-2 p-3 text-center" onclick="kachhabill()" id="bac" style="cursor:pointer; background-color:aqua;">Kachha Bill Inventory</div>
     </div>

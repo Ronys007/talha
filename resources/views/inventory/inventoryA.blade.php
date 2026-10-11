@@ -1,6 +1,6 @@
 <div>
 <h1 class="text-center text-light m-3">Inventory Pakka Bill</h1>
-  <div class="hstack gap-3">
+  <div class="hstack gap-3 ">
     <div class="p-2">
  <!-- Modal Add inventory-->
 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#exampleModal">
@@ -37,7 +37,7 @@
       <input type="number" class="form-control" name="qty" id="qtyA" onchange="calculateTotal()" required>
     </div>
   </div>
-  <div class="row mb-3">
+  <!-- <div class="row mb-3">
     <label for="inputPassword3" class="col-sm-2 col-form-label">Purchase Price</label>
     <div class="col-sm-10">
       <input type="number" class="form-control" name="price" id="priceA" onchange="calculateTotal()" required>
@@ -48,7 +48,7 @@
     <div class="col-sm-10">
       <input type="number" class="form-control" name="totalprice" id="totalpriceA" readonly>
     </div>
-  </div>
+  </div> -->
   <button type="submit" class="btn btn-primary">Add Inventory</button>
 </form>
       </div>
@@ -61,7 +61,7 @@
 <!-- Customer Order Modal -->
 
  <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#exampleModal1">
-  Add Order
+  Add Bill
 </button>
 </div>
 
@@ -84,14 +84,19 @@
     </div>
   </div>
   <div class="row mb-3">
-    <label for="inputPassword3" class="col-sm-2 col-form-label">Item</label>
-      <!-- <input type="name" class="form-control" name="item" required> -->
-    <select name="item" id="item" class="col-sm-10">
+    <label for="item" class="col-sm-2 col-form-label">Item</label>
+    <div class="col-sm-10">
+    
+            <input type="text" class="form-control item-input" name="item" id="item"  required>
+        
+    </div>
+
+    <!-- <select name="item" id="item" class="col-sm-10">
       <option value="">Select Item</option>
       @foreach($inventA as $inventoryA)
       <option value="{{$inventoryA->item}}" data-hsn="{{$inventoryA->hsn}}">{{$inventoryA->item}}</option>
       @endforeach
-    </select>
+    </select> -->
     
   </div>
   <div class="row mb-3">
@@ -132,8 +137,8 @@
             <th>Item</th>
             <th>Hsn No</th>
             <th>Quantity</th>
-            <th>Purchase Price</th>
-            <th>Total Amount</th>
+            <!-- <th>Purchase Price</th>
+            <th>Total Amount</th> -->
             <th>Action</th>
         </tr>
         @foreach ($inventA as $pak)
@@ -142,8 +147,8 @@
             <td>{{$pak->item}}</td>
             <td>{{$pak->hsn}}</td>
             <td>{{$pak->qty}}</td>
-            <td>{{$pak->price}}</td>
-            <td>{{$pak->totalprice}}</td>
+            <!-- <td>{{$pak->price}}</td>
+            <td>{{$pak->totalprice}}</td> -->
             <td>
             <a href="" data-bs-toggle="modal" data-bs-target="#exampleModal" onclick="populateEditAForm({{ $pak }})"><input class="btn btn-warning" value="Edit" type="button"></a>
               <a href="{{ route('inventoryA.delete', $pak->id) }}" onclick="return confirm('Are you sure?')"><button class="btn btn-danger">Delete</button></a>
@@ -155,19 +160,30 @@
 </div>
 
 <script>
-    $(document).ready(function(){
-      $('#item').change(function(){
-        var hsnA =$(this).find(':selected').data('hsn');
-        $('#hsn').val(hsnA);
-      });
+   $(document).ready(function(){
+        // Function to update HSN number based on selected item
+        $('#item').on('change', function(){
+            var itemName = $(this).val().trim(); // Get the selected item name
+            
+            // Loop through each inventory item to find the corresponding HSN
+            @foreach ($inventA as $inventoryA)
+                if ("{{$inventoryA->item}}" === itemName) {
+                    $('#hsn').val("{{$inventoryA->hsn}}");
+                    return; // Exit the loop once HSN is found
+                }
+            @endforeach
+
+            // If no matching item found, clear the HSN input
+            $('#hsn').val('');
+        });
     });
 
     function calculateTotal() {
-          // Inventory Total Price
-            var qty = document.getElementById('qtyA').value;
-            var price = document.getElementById('priceA').value;
-            var total = qty * price;
-            document.getElementById('totalpriceA').value = total.toFixed(2); // Adjust to your desired decimal places
+          // // Inventory Total Price
+          //   var qty = document.getElementById('qtyA').value;
+          //   var price = document.getElementById('priceA').value;
+          //   var total = qty * price;
+          //   document.getElementById('totalpriceA').value = total.toFixed(2); // Adjust to your desired decimal places
             
             // Order Total Price
             var qty = document.getElementById('qty').value;
@@ -181,8 +197,8 @@
         document.querySelector('#itemA').value = pak.item;
         document.querySelector('#hsnA').value = pak.hsn;
         document.querySelector('#qtyA').value = pak.qty;
-        document.querySelector('#priceA').value = pak.price;
-        document.querySelector('#totalpriceA').value = pak.totalprice;
+        // document.querySelector('#priceA').value = pak.price;
+        // document.querySelector('#totalpriceA').value = pak.totalprice;
     }
 </script>
 

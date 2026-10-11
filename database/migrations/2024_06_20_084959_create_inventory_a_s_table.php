@@ -16,8 +16,6 @@ return new class extends Migration
             $table->string('item');
             $table->integer('hsn');
             $table->integer('qty');
-            $table->float('price');
-            $table->float('totalprice');
             $table->timestamps();
         });
     }
