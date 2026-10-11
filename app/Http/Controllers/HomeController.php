@@ -2,23 +2,99 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Http\Controllers\InventoryAController;
-use App\Http\Controllers\InventoryBController;
-use App\Models\InventoryA;
-
+use App\Models\Order;
+use App\Models\Inventory;
+use App\Models\Transaction;
+use Inertia\Inertia;
 
 class HomeController extends Controller
 {
-    public function __construct(private InventoryAController $inventoryA, private InventoryBController $inventoryB)
-    {} 
+    private function getStatsForMode(int $userId, string $mode)
+    {
+        $totalItems = Inventory::where('user_id', $userId)
+            ->where('mode', $mode)
+            ->count();
 
-    public function index(){
-        $inventA= $this->inventoryA->view();
-        $inventB= $this->inventoryB->view();
-        return view('home', compact('inventA', 'inventB'));
+        $totalOrders = Order::where('user_id', $userId)
+            ->where('mode', $mode)
+            ->count();
+
+        $totalRevenue = Order::where('user_id', $userId)
+            ->where('mode', $mode)
+            ->sum('total_price');
+
+        $orders = Order::where('user_id', $userId)
+            ->where('mode', $mode)
+            ->get();
+
+        $pendingBalance = 0;
+        foreach ($orders as $order) {
+            $transactions = Transaction::where('order_b_s_id', $order->id)
+                ->where('user_id', $userId)
+                ->get();
+            $balance = $order->total_price;
+            foreach ($transactions as $t) {
+                if ($t->type === 'credit') $balance += $t->amount;
+                else if ($t->type === 'receive') $balance -= $t->amount;
+            }
+            if ($balance > 0) $pendingBalance += $balance;
+        }
+
+        return [
+            'totalItems'     => $totalItems,
+            'totalOrders'    => $totalOrders,
+            'totalRevenue'   => $totalRevenue,
+            'pendingBalance' => round($pendingBalance, 2),
+            'mode'           => $mode,
+        ];
     }
 
-    
-     
+    private function getOwnerId(): int
+    {
+        return (int) (auth()->user()?->store_owner_id ?? auth()->id());
+    }
+
+    public function index(\Illuminate\Http\Request $request)
+    {
+        $userId = $this->getOwnerId();
+        $mode = $request->input('mode', 'standard');
+        if (!in_array($mode, ['standard', 'barcode'])) {
+            $mode = 'standard';
+        }
+
+        return Inertia::render('Dashboard', [
+            'stats' => $this->getStatsForMode($userId, $mode),
+        ]);
+    }
+
+    public function stats(\Illuminate\Http\Request $request)
+    {
+        $userId = $this->getOwnerId();
+        $mode = $request->input('mode', 'standard');
+        if (!in_array($mode, ['standard', 'barcode'])) {
+            $mode = 'standard';
+        }
+
+        return response()->json($this->getStatsForMode($userId, $mode));
+    }
+
+    public function barcodeItems(\Illuminate\Http\Request $request)
+    {
+        $userId = $this->getOwnerId();
+        $items = Inventory::where('user_id', $userId)
+            ->where('mode', 'barcode')
+            ->whereNotNull('code')
+            ->where('code', '!=', '')
+            ->orderBy('item', 'asc')
+            ->get(['id', 'item', 'code', 'qty', 'selling_price', 'image']);
+
+        return response()->json($items->map(fn($item) => [
+            'id'            => $item->id,
+            'item'          => $item->item,
+            'code'          => $item->code,
+            'qty'           => $item->qty,
+            'selling_price' => $item->selling_price ? (float)$item->selling_price : 0,
+            'image'         => $item->image ? asset('storage/' . $item->image) : null,
+        ]));
+    }
 }

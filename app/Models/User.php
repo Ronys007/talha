@@ -20,7 +20,34 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
+        'parent_id',
     ];
+
+    public function parent()
+    {
+        return $this->belongsTo(User::class, 'parent_id');
+    }
+
+    public function staff()
+    {
+        return $this->hasMany(User::class, 'parent_id');
+    }
+
+    public function getStoreOwnerIdAttribute(): int
+    {
+        return (int) ($this->parent_id ?? $this->id);
+    }
+
+    public function isStaff(): bool
+    {
+        return $this->role === 'staff';
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin' || empty($this->role);
+    }
 
     /**
      * The attributes that should be hidden for serialization.

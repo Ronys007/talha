@@ -1,45 +1,68 @@
 <?php
 
+use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\HomeController;
-use App\Http\Controllers\InventoryAController;
-use App\Http\Controllers\InventoryBController;
+use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\AccountController;
+use App\Http\Controllers\DataExportController;
 
-// Home
-Route::get('/', [HomeController::class, 'index']);
+// Redirect root to dashboard or login
+Route::get('/', function () {
+    return auth()->check()
+        ? redirect()->route('dashboard')
+        : redirect()->route('login');
+});
 
-// Delete routes for InventoryA and InventoryB
-Route::get('/inventoryA-delete/{id}', [InventoryAController::class, 'delete'])->name('inventoryA.delete');
-Route::get('/inventoryB-delete/{id}', [InventoryBController::class, 'delete'])->name('inventoryB.delete');
+Route::middleware('auth')->group(function () {
 
-// InventoryA routes
-Route::post('/inventoryA', [InventoryAController::class, 'store']);
-Route::get('/inventoryA', [InventoryAController::class, 'view']);
+    // ==================== Home ====================
+    Route::get('/dashboard', [HomeController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard/stats', [HomeController::class, 'stats'])->name('home.stats');
+    Route::get('/dashboard/barcode-items', [HomeController::class, 'barcodeItems'])->name('home.barcode-items');
 
-// InventoryB routes
-Route::post('/inventoryB', [InventoryBController::class, 'store']);
-Route::get('/inventoryB', [InventoryBController::class, 'view']);
+    // ==================== Profile Management ====================
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-// Billing routes
-Route::get('/billing', [BillingController::class, 'index']);
+    // ==================== Billing Management (Admin & Staff) ====================
+    Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
+    Route::get('/billing/data', [BillingController::class, 'data'])->name('billing.data');
+    Route::post('/billing', [BillingController::class, 'store'])->name('billing.store');
+    Route::post('/billing/{id}', [BillingController::class, 'update'])->name('billing.update');
+    Route::delete('/billing/{id}', [BillingController::class, 'delete'])->name('billing.delete');
+    Route::get('/billing/{id}/print', [BillingController::class, 'print'])->name('billing.print');
+    Route::get('/billing/search', [BillingController::class, 'search'])->name('billing.search');
 
-Route::post('/billing/storeA', [BillingController::class, 'storeA'])->name('storeA');
-Route::get('/billing/deleteA/{id}', [BillingController::class, 'deleteA'])->name('deleteStoreA'); // Corrected route name
+    // ==================== Admin Only Routes ====================
+    Route::middleware('admin')->group(function () {
+        // Inventory Management
+        Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
+        Route::get('/inventory/data', [InventoryController::class, 'data'])->name('inventory.data');
+        Route::get('/inventory/check-name', [InventoryController::class, 'checkName'])->name('inventory.check-name');
+        Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
+        Route::post('/inventory/{id}', [InventoryController::class, 'update'])->name('inventory.update');
+        Route::delete('/inventory/{id}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
 
-Route::post('/billing/storeB', [BillingController::class, 'storeB'])->name('storeB');
-Route::get('/billing/deleteB/{id}', [BillingController::class, 'deleteB'])->name('deleteStoreB'); // Corrected route name
+        // Account Management
+        Route::get('/account/{id}', [AccountController::class, 'show'])->name('account.show');
+        Route::post('/account/{id}/receipt', [AccountController::class, 'addReceipt'])->name('account.receipt');
+        Route::post('/account/{id}/credit', [AccountController::class, 'addCredit'])->name('account.credit');
+        Route::delete('/account/credit/{id}', [AccountController::class, 'deleteCredit'])->name('account.credit.delete');
+        Route::delete('/account/receipt/{id}', [AccountController::class, 'deleteReceipt'])->name('account.receipt.delete');
 
-// Edit and Update routes
+        // Data Export
+        Route::get('/export', [DataExportController::class, 'export'])->name('export');
 
-// Route::get('/inventoryA-edit/{id}',[InventoryAController::class, 'edit'])->name('inventoryA.edit');
-Route::post('/inventoryA-update/{id}',[InventoryAController::class, 'update'])->name('inventoryA.update');
+        // Legacy Routes (backward compat)
+        Route::get('/inventoryB', [InventoryController::class, 'index']);
+        Route::get('/billing/{id}/delete', [BillingController::class, 'delete']);
+        Route::get('/inventory/{id}/delete', [InventoryController::class, 'legacyDelete']);
+        Route::get('/account/credit/{id}/delete', [AccountController::class, 'deleteCredit']);
+        Route::get('/account/receipt/{id}/delete', [AccountController::class, 'deleteReceipt']);
+    });
+});
 
-// Route::get('/inventoryB-edit/{id}',[InventoryBController::class, 'edit'])->name('inventoryB.edit');
-Route::post('/inventoryB-update/{id}',[InventoryBController::class, 'update'])->name('inventoryB.update');
-
-// Route::get('/billingA-editA/{id}',[BillingController::class, 'editA'])->name('billingA.editA');
-Route::post('/billingA-update/{id}',[BillingController::class, 'updateA'])->name('billingA.update');
-
-// Route::get('/billingB-editB/{id}',[BillingController::class, 'editB'])->name('billingB.editB');
-Route::post('/billingB-update/{id}',[BillingController::class, 'updateB'])->name('billingB.update');
+require __DIR__.'/auth.php';
