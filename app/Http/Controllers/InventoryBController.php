@@ -12,8 +12,7 @@ class InventoryBController extends Controller
             'item'=>'required|string|max:255',
             'qty'=>'required|numeric',
             'hsn'=>'required|numeric',
-            'price'=>'required|numeric',
-            'totalprice'=>'required|numeric',
+        
 
         ]);
 
@@ -21,8 +20,6 @@ class InventoryBController extends Controller
         $inventoryB->item= $request['item'];
         $inventoryB->hsn= $request['hsn'];
         $inventoryB->qty= $request['qty'];
-        $inventoryB->price= $request['price'];
-        $inventoryB->totalprice= $request['totalprice'];
         $inventoryB->save();
 
         return redirect()->back();
@@ -54,8 +51,6 @@ class InventoryBController extends Controller
             'item'=>'required|string|max:255',
             'qty'=>'required|numeric',
             'hsn'=>'required|numeric',
-            'price'=>'required|numeric',
-            'totalprice'=> 'required|numeric',
         ]);
 
         $inventoryB= InventoryB::find($id);
@@ -65,8 +60,6 @@ class InventoryBController extends Controller
         $inventoryB->item = $request->item;
         $inventoryB->hsn = $request->hsn;
         $inventoryB->qty = $request->qty;
-        $inventoryB->price = $request->price;
-        $inventoryB->totalprice = $request->totalprice;
         $inventoryB->save();
         return redirect()->back();
     }
