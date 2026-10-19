@@ -81,10 +81,47 @@ class WhatsAppService
     }
 
     /**
+     * Ensure the Node.js Baileys sidecar process is running; auto-launch if stopped.
+     */
+    public function ensureSidecarRunning(): void
+    {
+        if (app()->environment('testing')) {
+            return;
+        }
+
+        try {
+            $response = Http::timeout(1)->get("{$this->sidecarUrl}/health");
+            if ($response->successful()) {
+                return;
+            }
+        } catch (\Throwable $e) {
+            // Service not responding, proceed to auto-launch
+        }
+
+        $basePath = base_path('whatsapp-service');
+        $serverScript = $basePath . DIRECTORY_SEPARATOR . 'server.js';
+        if (!file_exists($serverScript)) {
+            return;
+        }
+
+        try {
+            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                pclose(popen("start /B cmd /C \"cd /d \"{$basePath}\" && node server.js\"", "r"));
+            } else {
+                exec("cd \"{$basePath}\" && node server.js > /dev/null 2>&1 &");
+            }
+            usleep(600000); // 600ms grace period for Express to bind
+        } catch (\Throwable $e) {
+            Log::warning("Failed to auto-spawn Baileys sidecar: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Get live connection status from the Baileys Node.js sidecar
      */
     public function getSessionStatus(?int $merchantId = null): array
     {
+        $this->ensureSidecarRunning();
         $sessionId = $this->getSessionId($merchantId);
 
         try {
@@ -123,6 +160,7 @@ class WhatsAppService
      */
     public function connectSession(?int $merchantId = null): array
     {
+        $this->ensureSidecarRunning();
         $sessionId = $this->getSessionId($merchantId);
 
         try {

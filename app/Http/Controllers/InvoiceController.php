@@ -451,6 +451,8 @@ class InvoiceController extends Controller
 
             DB::commit();
 
+            $waSentDirectly = false;
+            $waFailed = false;
             if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
                 try {
                     $waService = app(\App\Services\WhatsAppService::class);
@@ -465,15 +467,25 @@ class InvoiceController extends Controller
                         invoiceId: $invoice->id,
                         recipientName: $invoice->customer_name
                     );
-                    if (!empty($res['wa_me_url']) && ($res['status'] ?? '') === 'fallback_link') {
-                        session()->flash('wa_me_url', $res['wa_me_url']);
+                    if (($res['status'] ?? '') === 'sent') {
+                        $waSentDirectly = true;
+                    } else {
+                        $waFailed = true;
                     }
                 } catch (\Throwable $waErr) {
                     \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on store: " . $waErr->getMessage());
                 }
             }
 
-            return redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created successfully.");
+            if ($waSentDirectly) {
+                return redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created and WhatsApp notification sent directly to {$invoice->customer_name}!");
+            }
+
+            $redirect = redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created successfully.");
+            if ($waFailed) {
+                $redirect->with('warning', "Invoice saved, but WhatsApp could not be sent directly. Please connect your device in WhatsApp Hub.");
+            }
+            return $redirect;
         } catch (\Throwable $e) {
             DB::rollBack();
             return back()->with('error', 'Failed to generate invoice: ' . $e->getMessage())->withInput();
@@ -738,6 +750,8 @@ class InvoiceController extends Controller
 
             DB::commit();
 
+            $waSentDirectly = false;
+            $waFailed = false;
             if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
                 try {
                     $waService = app(\App\Services\WhatsAppService::class);
@@ -752,15 +766,25 @@ class InvoiceController extends Controller
                         invoiceId: $invoice->id,
                         recipientName: $invoice->customer_name
                     );
-                    if (!empty($res['wa_me_url']) && ($res['status'] ?? '') === 'fallback_link') {
-                        session()->flash('wa_me_url', $res['wa_me_url']);
+                    if (($res['status'] ?? '') === 'sent') {
+                        $waSentDirectly = true;
+                    } else {
+                        $waFailed = true;
                     }
                 } catch (\Throwable $waErr) {
                     \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on update: " . $waErr->getMessage());
                 }
             }
 
-            return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated successfully.");
+            if ($waSentDirectly) {
+                return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated and WhatsApp notification sent directly to {$invoice->customer_name}!");
+            }
+
+            $redirect = redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated successfully.");
+            if ($waFailed) {
+                $redirect->with('warning', "Invoice updated, but WhatsApp could not be sent directly. Please connect your device in WhatsApp Hub.");
+            }
+            return $redirect;
         } catch (\Throwable $e) {
             DB::rollBack();
             return back()->with('error', 'Failed to update invoice: ' . $e->getMessage())->withInput();

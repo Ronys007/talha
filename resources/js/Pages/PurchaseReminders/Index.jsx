@@ -441,18 +441,10 @@ ${bName}${phone}`;
     }
 
     // Direct WhatsApp Sharing
-    async function handleSendWhatsApp(bill) {
-        // Automatically download the voucher PDF
-        await generateAndDownloadBillPDF(bill);
-
-        const msg = encodeURIComponent(buildReminderMessage(bill));
-        let phone = (bill.supplier_phone || "").replace(/\D/g, "");
-        if (phone.length === 10) {
-            phone = "91" + phone;
-        }
-
-        const url = phone ? `https://wa.me/${phone}?text=${msg}` : `https://wa.me/?text=${msg}`;
-        window.open(url, "_blank");
+    function handleSendWhatsApp(bill) {
+        router.post(`/whatsapp/send-purchase-reminder/${bill.id}`, {}, {
+            preserveScroll: true,
+        });
     }
 
     // Quick Change Due Date

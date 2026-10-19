@@ -494,35 +494,19 @@ ${bName}${phone}`;
         return fileName;
     }
 
-    // 1-Click WhatsApp reminder + automatic PDF generation
-    async function handleSendWhatsApp(bill) {
+    // 1-Click WhatsApp reminder
+    function handleSendWhatsApp(bill) {
         if (bill.source === "invoice") {
             router.post(`/whatsapp/send-reminder/${bill.id}`, {}, {
                 preserveScroll: true,
-                onSuccess: (page) => {
-                    const waMeUrl = page.props?.flash?.wa_me_url;
-                    if (waMeUrl) {
-                        window.open(waMeUrl, "_blank");
-                    }
-                }
             });
             return;
         }
 
-        setGeneratingPdfId(bill.id);
-        try {
-            await generateAndDownloadBillPDF(bill);
-        } catch (e) {
-            console.error("PDF generation failed", e);
-        } finally {
-            setGeneratingPdfId(null);
-        }
-
-        const msg = encodeURIComponent(buildReminderMessage(bill));
-        const cleanPhone = (bill.customer_phone || "").replace(/[^\d]/g, "");
-        const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-        const waUrl = targetPhone ? `https://wa.me/${targetPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
-        window.open(waUrl, "_blank");
+        // For direct bills
+        router.post(`/whatsapp/send-reminder/${bill.id}`, {}, {
+            preserveScroll: true,
+        });
     }
 
     // Handle user changing payment due date

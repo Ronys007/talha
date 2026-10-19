@@ -85,47 +85,55 @@ function Toast({ flash }) {
 
     useEffect(() => {
         const m = flash?.success || flash?.delete;
+        const w = flash?.warning;
         const e = flash?.error;
         if (m) {
             setMsg(m);
             setType("success");
             setVisible(true);
-            const t = setTimeout(() => setVisible(false), 3500);
+            const t = setTimeout(() => setVisible(false), 4000);
+            return () => clearTimeout(t);
+        }
+        if (w) {
+            setMsg(w);
+            setType("warning");
+            setVisible(true);
+            const t = setTimeout(() => setVisible(false), 5000);
             return () => clearTimeout(t);
         }
         if (e) {
             setMsg(e);
             setType("error");
             setVisible(true);
-            const t = setTimeout(() => setVisible(false), 3500);
+            const t = setTimeout(() => setVisible(false), 5000);
             return () => clearTimeout(t);
         }
     }, [flash]);
 
     if (!visible) return null;
+    const isWaPrompt = msg && (msg.includes("WhatsApp") || msg.includes("WhatsApp Hub"));
+
     return (
         <div className="toast-container">
-            <div className={`toast toast-${type}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className={`toast toast-${type}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span>{msg}</span>
-                {flash?.wa_me_url && (
+                {isWaPrompt && (type === 'error' || type === 'warning') && (
                     <a
-                        href={flash.wa_me_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href="/whatsapp"
                         style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
-                            padding: '3px 8px',
-                            background: 'rgba(255,255,255,0.25)',
+                            padding: '3px 10px',
+                            background: '#4f46e5',
+                            color: '#ffffff',
                             borderRadius: 6,
-                            color: 'inherit',
                             fontWeight: 700,
                             textDecoration: 'none',
                             fontSize: 12,
                         }}
                     >
-                        Open WhatsApp ↗
+                        Open WhatsApp Hub →
                     </a>
                 )}
             </div>

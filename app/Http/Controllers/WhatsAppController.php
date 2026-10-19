@@ -152,13 +152,10 @@ class WhatsAppController extends Controller
         );
 
         if ($result['status'] === 'sent') {
-            return back()->with('success', 'Test message delivered automatically via WhatsApp sidecar!');
+            return back()->with('success', '✓ Test message delivered directly via WhatsApp in background!');
         }
 
-        return back()->with([
-            'success' => 'Test message ready! If sidecar is offline, click the fallback link below.',
-            'wa_me_url' => $result['wa_me_url'] ?? null,
-        ]);
+        return back()->with('error', 'WhatsApp is not connected! Please scan the QR code under the "Device Link & QR Scanner" tab first.');
     }
 
     /**
@@ -283,13 +280,10 @@ class WhatsAppController extends Controller
         );
 
         if ($result['status'] === 'sent') {
-            return back()->with('success', "Invoice notification sent to {$invoice->customer_name} via WhatsApp!");
+            return back()->with('success', "✓ Invoice notification delivered directly to {$invoice->customer_name} via WhatsApp!");
         }
 
-        return back()->with([
-            'success' => "WhatsApp link generated! Click to send via WhatsApp Web/App.",
-            'wa_me_url' => $result['wa_me_url'] ?? null,
-        ]);
+        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
     }
 
     /**
@@ -318,12 +312,43 @@ class WhatsAppController extends Controller
         );
 
         if ($result['status'] === 'sent') {
-            return back()->with('success', "Payment reminder sent to {$invoice->customer_name} via WhatsApp!");
+            return back()->with('success', "✓ Payment reminder sent directly to {$invoice->customer_name} via WhatsApp!");
         }
 
-        return back()->with([
-            'success' => "Payment reminder ready! Click to open WhatsApp.",
-            'wa_me_url' => $result['wa_me_url'] ?? null,
-        ]);
+        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
+    }
+
+    /**
+     * Send Purchase Order / Reminder to Supplier directly via WhatsApp
+     */
+    public function sendPurchaseReminder($id, WhatsAppService $whatsAppService)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $order = \App\Models\PurchaseOrder::whereIn('user_id', $ownerIds)->where('id', $id)->firstOrFail();
+
+        if (empty($order->supplier_phone)) {
+            return back()->with('error', 'Supplier phone number is missing from this purchase bill.');
+        }
+
+        $bProfile = BusinessProfile::where('user_id', $order->user_id)->first();
+        $bName = $bProfile?->business_name ?? auth()->user()?->name ?? 'Merchant';
+        $due = max(0, (float)$order->total_amount - (float)($order->paid_amount ?? 0));
+
+        $message = "Namaste {$order->supplier_name}! Regarding Purchase Order #{$order->po_number} from {$bName}:\nTotal Amount: Rs. " . number_format($order->total_amount, 2) . "\nPaid: Rs. " . number_format($order->paid_amount ?? 0, 2) . "\nBalance Due: Rs. " . number_format($due, 2) . "\nThank you for your partnership!";
+
+        $result = $whatsAppService->sendText(
+            phone: $order->supplier_phone,
+            message: $message,
+            merchantId: $order->user_id,
+            triggerType: 'purchase_reminder',
+            invoiceId: null,
+            recipientName: $order->supplier_name
+        );
+
+        if ($result['status'] === 'sent') {
+            return back()->with('success', "✓ Purchase reminder delivered directly to {$order->supplier_name} via WhatsApp!");
+        }
+
+        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
     }
 }

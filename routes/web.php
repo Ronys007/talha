@@ -110,6 +110,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/whatsapp/broadcasts/{id}/cancel', [\App\Http\Controllers\WhatsAppController::class, 'cancelBroadcast'])->name('whatsapp.broadcasts.cancel');
     Route::post('/whatsapp/send-invoice/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendInvoiceNotification'])->name('whatsapp.send.invoice');
     Route::post('/whatsapp/send-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPaymentReminder'])->name('whatsapp.send.reminder');
+    Route::post('/whatsapp/send-purchase-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPurchaseReminder'])->name('whatsapp.send.purchase-reminder');
 });
 
 // ==================== Public Signed/Hashed Invoice Route ====================
