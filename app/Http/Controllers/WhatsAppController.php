@@ -12,6 +12,7 @@ use App\Models\WhatsappMessageLog;
 use App\Models\WhatsappTemplate;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class WhatsAppController extends Controller
@@ -78,6 +79,14 @@ class WhatsAppController extends Controller
             ->whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
             ->whereRaw('(total_amount - paid_amount) > 0.01')
             ->count();
+        $pendingBalanceSum = (float) Invoice::whereIn('user_id', $ownerIds)
+            ->whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
+            ->whereRaw('(total_amount - paid_amount) > 0.01')
+            ->sum(DB::raw('total_amount - paid_amount'));
+
+        $totalSentLogs = WhatsappMessageLog::where('user_id', $ownerId)
+            ->where('status', 'sent')
+            ->count();
 
         return Inertia::render('WhatsApp/Index', [
             'sessionStatus' => $sessionStatus,
@@ -93,10 +102,12 @@ class WhatsAppController extends Controller
                 'daily_limit' => $dailyLimit,
                 'used_today' => $usedToday,
                 'remaining' => $remainingQuota,
+                'total_sent' => $totalSentLogs,
             ],
             'customerStats' => [
                 'total_customers' => $customerCount,
                 'pending_bills_count' => $pendingBillsCount,
+                'pending_balance_sum' => $pendingBalanceSum,
             ],
         ]);
     }
