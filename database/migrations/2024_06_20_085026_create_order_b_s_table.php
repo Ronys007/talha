@@ -13,12 +13,8 @@ return new class extends Migration
     {
         Schema::create('order_b_s', function (Blueprint $table) {
             $table->id();
-            $table->string('custname');
-            $table->string('item');
-            $table->integer('hsn');
-            $table->integer('qty');
-            $table->float('price');
-            $table->float('totalprice');
+            $table->string('customer');
+            $table->decimal('total_price', 10, 2);
             $table->timestamps();
         });
     }

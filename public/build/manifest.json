@@ -1,0 +1,286 @@
+{
+  "_AppLayout-DkB4A5Jp.js": {
+    "file": "assets/AppLayout-DkB4A5Jp.js",
+    "name": "AppLayout",
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "_ApplicationLogo-DDmv3jS8.js": {
+    "file": "assets/ApplicationLogo-DDmv3jS8.js",
+    "name": "ApplicationLogo",
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ]
+  },
+  "_AuthLayout-C9g5Xlfp.js": {
+    "file": "assets/AuthLayout-C9g5Xlfp.js",
+    "name": "AuthLayout",
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ]
+  },
+  "_TableActionDropdown-00AHulg6.js": {
+    "file": "assets/TableActionDropdown-00AHulg6.js",
+    "name": "TableActionDropdown",
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ]
+  },
+  "_jspdf.es.min-BGmM5UBk.js": {
+    "file": "assets/jspdf.es.min-BGmM5UBk.js",
+    "name": "jspdf.es.min",
+    "imports": [
+      "resources/js/app.jsx"
+    ],
+    "dynamicImports": [
+      "node_modules/dompurify/dist/purify.es.mjs",
+      "node_modules/canvg/lib/index.es.js"
+    ]
+  },
+  "_tallyExport-B45W8dcf.js": {
+    "file": "assets/tallyExport-B45W8dcf.js",
+    "name": "tallyExport"
+  },
+  "_vendor-react-DXr1-6FE.js": {
+    "file": "assets/vendor-react-DXr1-6FE.js",
+    "name": "vendor-react"
+  },
+  "node_modules/canvg/lib/index.es.js": {
+    "file": "assets/index.es-BWoJ6aCE.js",
+    "name": "index.es",
+    "src": "node_modules/canvg/lib/index.es.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "node_modules/dompurify/dist/purify.es.mjs": {
+    "file": "assets/purify.es-C5KSVp3G.js",
+    "name": "purify.es",
+    "src": "node_modules/dompurify/dist/purify.es.mjs",
+    "isDynamicEntry": true
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-Bs6bGAeK.css",
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/js/Pages/Auth/ForgotPassword.jsx": {
+    "file": "assets/ForgotPassword-BokcSI0W.js",
+    "name": "ForgotPassword",
+    "src": "resources/js/Pages/Auth/ForgotPassword.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AuthLayout-C9g5Xlfp.js"
+    ]
+  },
+  "resources/js/Pages/Auth/Login.jsx": {
+    "file": "assets/Login-MIKdZA5o.js",
+    "name": "Login",
+    "src": "resources/js/Pages/Auth/Login.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ]
+  },
+  "resources/js/Pages/Auth/Register.jsx": {
+    "file": "assets/Register-BlKCanz-.js",
+    "name": "Register",
+    "src": "resources/js/Pages/Auth/Register.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AuthLayout-C9g5Xlfp.js"
+    ]
+  },
+  "resources/js/Pages/Dashboard.jsx": {
+    "file": "assets/Dashboard-C0E3EaOT.js",
+    "name": "Dashboard",
+    "src": "resources/js/Pages/Dashboard.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/Inventory/Index.jsx": {
+    "file": "assets/Index-CjCpN86W.js",
+    "name": "Index",
+    "src": "resources/js/Pages/Inventory/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx",
+      "_TableActionDropdown-00AHulg6.js"
+    ]
+  },
+  "resources/js/Pages/Invoices/Index.jsx": {
+    "file": "assets/Index-f5XJkvSJ.js",
+    "name": "Index",
+    "src": "resources/js/Pages/Invoices/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "_ApplicationLogo-DDmv3jS8.js",
+      "_TableActionDropdown-00AHulg6.js",
+      "_tallyExport-B45W8dcf.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/Invoices/Print.jsx": {
+    "file": "assets/Print-C3FFoYHy.js",
+    "name": "Print",
+    "src": "resources/js/Pages/Invoices/Print.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "_ApplicationLogo-DDmv3jS8.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/Margin/Index.jsx": {
+    "file": "assets/Index-C59UhrBx.js",
+    "name": "Index",
+    "src": "resources/js/Pages/Margin/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/PaymentReminders/Index.jsx": {
+    "file": "assets/Index-CIjgZ_Q8.js",
+    "name": "Index",
+    "src": "resources/js/Pages/PaymentReminders/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "_TableActionDropdown-00AHulg6.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/Profile/Edit.jsx": {
+    "file": "assets/Edit-Ba8_TTvT.js",
+    "name": "Edit",
+    "src": "resources/js/Pages/Profile/Edit.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/PublicInvoice/Show.jsx": {
+    "file": "assets/Show-B0fJdHQ6.js",
+    "name": "Show",
+    "src": "resources/js/Pages/PublicInvoice/Show.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ]
+  },
+  "resources/js/Pages/Purchase/Index.jsx": {
+    "file": "assets/Index-DEtlFFqx.js",
+    "name": "Index",
+    "src": "resources/js/Pages/Purchase/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "_TableActionDropdown-00AHulg6.js",
+      "_tallyExport-B45W8dcf.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/PurchaseReminders/Index.jsx": {
+    "file": "assets/Index-BpqKjc6S.js",
+    "name": "Index",
+    "src": "resources/js/Pages/PurchaseReminders/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "_TableActionDropdown-00AHulg6.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/Quotations/Index.jsx": {
+    "file": "assets/Index-GKYtuT72.js",
+    "name": "Index",
+    "src": "resources/js/Pages/Quotations/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_jspdf.es.min-BGmM5UBk.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "_TableActionDropdown-00AHulg6.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/SuperAdmin/Dashboard.jsx": {
+    "file": "assets/Dashboard-CGkFwuAd.js",
+    "name": "Dashboard",
+    "src": "resources/js/Pages/SuperAdmin/Dashboard.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/Pages/WhatsApp/Index.jsx": {
+    "file": "assets/Index-j2DdUBsD.js",
+    "name": "Index",
+    "src": "resources/js/Pages/WhatsApp/Index.jsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js",
+      "_AppLayout-DkB4A5Jp.js",
+      "resources/js/app.jsx"
+    ]
+  },
+  "resources/js/app.jsx": {
+    "file": "assets/app-DlvRQk1W.js",
+    "name": "app",
+    "src": "resources/js/app.jsx",
+    "isEntry": true,
+    "imports": [
+      "_vendor-react-DXr1-6FE.js"
+    ],
+    "dynamicImports": [
+      "resources/js/Pages/Auth/ForgotPassword.jsx",
+      "resources/js/Pages/Auth/Login.jsx",
+      "resources/js/Pages/Auth/Register.jsx",
+      "resources/js/Pages/Dashboard.jsx",
+      "resources/js/Pages/Inventory/Index.jsx",
+      "resources/js/Pages/Invoices/Index.jsx",
+      "resources/js/Pages/Invoices/Print.jsx",
+      "resources/js/Pages/Margin/Index.jsx",
+      "resources/js/Pages/PaymentReminders/Index.jsx",
+      "resources/js/Pages/Profile/Edit.jsx",
+      "resources/js/Pages/PublicInvoice/Show.jsx",
+      "resources/js/Pages/Purchase/Index.jsx",
+      "resources/js/Pages/PurchaseReminders/Index.jsx",
+      "resources/js/Pages/Quotations/Index.jsx",
+      "resources/js/Pages/SuperAdmin/Dashboard.jsx",
+      "resources/js/Pages/WhatsApp/Index.jsx"
+    ],
+    "css": [
+      "assets/app-Bs6bGAeK.css"
+    ]
+  }
+}

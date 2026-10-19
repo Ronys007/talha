@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
+    'whatsapp' => [
+        'sidecar_url' => env('WHATSAPP_SIDECAR_URL', 'http://127.0.0.1:3001'),
+        'secret' => env('WHATSAPP_SIDECAR_SECRET', 'vama_secret_change_me_in_prod'),
+        'daily_broadcast_limit' => (int) env('WHATSAPP_DAILY_BROADCAST_LIMIT', 150),
+    ],
+
 ];

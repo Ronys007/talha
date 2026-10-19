@@ -1,0 +1,847 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\BusinessProfile;
+use App\Models\Customer;
+use App\Models\Inventory;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+
+class InvoiceController extends Controller
+{
+    private function getOwnerId(): int
+    {
+        $owner = (int) (auth()->user()?->getEffectiveOwnerId() ?? 0);
+        if ($owner > 0) {
+            return $owner;
+        }
+        return (int) (auth()->id() ?? 0);
+    }
+
+    private function getStoreUserIds(): array
+    {
+        $ids = auth()->user()?->getEffectiveStoreUserIds() ?? [];
+        if (empty($ids) || $ids === [-1]) {
+            return [$this->getOwnerId()];
+        }
+        return $ids;
+    }
+
+    private function getScanUsage(): array
+    {
+        $user = auth()->user();
+        $isSuperAdmin = $user && $user->isSuperAdmin();
+        $limit = 100;
+        $startOfMonth = now()->startOfMonth();
+        $endOfMonth = now()->endOfMonth();
+
+        if ($isSuperAdmin) {
+            $usedThisMonth = \App\Models\AiScanLog::where('user_id', $user->id)
+                ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+                ->count();
+        } else {
+            $storeIds = $this->getStoreUserIds();
+            $usedThisMonth = \App\Models\AiScanLog::whereIn('user_id', $storeIds)
+                ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+                ->count();
+        }
+
+        return [
+            'used' => $usedThisMonth,
+            'limit' => $limit,
+            'remaining' => $isSuperAdmin ? null : max(0, $limit - $usedThisMonth),
+            'isSuperAdmin' => (bool) $isSuperAdmin,
+            'hasReachedLimit' => !$isSuperAdmin && ($usedThisMonth >= $limit),
+            'monthName' => now()->format('F Y'),
+        ];
+    }
+
+    public function index(Request $request)
+    {
+        $ownerId = $this->getOwnerId();
+        $ownerIds = $this->getStoreUserIds();
+
+        $invoices = Invoice::whereIn('user_id', $ownerIds)
+            ->with(['items'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $businessProfile = BusinessProfile::where('user_id', $ownerId)->first();
+
+        // If no business profile exists yet, prefill default from user name/email
+        if (!$businessProfile) {
+            $user = auth()->user();
+            $businessProfile = [
+                'business_name' => $user->name ?? '',
+                'address' => '',
+                'city' => '',
+                'state' => '',
+                'pincode' => '',
+                'gst_number' => '',
+                'phone' => '',
+                'email' => $user->email ?? '',
+                'bank_name' => '',
+                'bank_account_number' => '',
+                'bank_ifsc' => '',
+                'bank_branch' => '',
+                'terms_and_conditions' => "1. Goods once sold will not be taken back or exchanged.\n2. Subject to local jurisdiction.\n3. Payment due upon receipt.",
+            ];
+        }
+
+        // Available inventory items for quick selection and auto-type suggestion
+        $inventoryItems = Inventory::whereIn('user_id', $ownerIds)
+            ->orderBy('item', 'asc')
+            ->get(['id', 'item', 'code', 'selling_price', 'qty', 'unit']);
+
+        // Saved customers for quick selection and auto-fill
+        $customers = Customer::whereIn('user_id', $ownerIds)
+            ->orderBy('name', 'asc')
+            ->get(['id', 'name', 'address', 'gst_number', 'phone', 'state']);
+
+        // Next sequential invoice number
+        $nextNumber = Invoice::generateNextNumber($ownerIds);
+
+        return Inertia::render('Invoices/Index', [
+            'invoices' => $invoices,
+            'businessProfile' => $businessProfile,
+            'inventoryItems' => $inventoryItems,
+            'customers' => $customers,
+            'nextInvoiceNumber' => $nextNumber,
+            'scanUsage' => $this->getScanUsage(),
+        ]);
+    }
+
+    public function scan(Request $request, \App\Services\InvoiceLlmService $llmService)
+    {
+        $scanUsage = $this->getScanUsage();
+        if ($scanUsage['hasReachedLimit']) {
+            return response()->json([
+                'success' => false,
+                'message' => "Monthly AI invoice scan limit of {$scanUsage['limit']} reached for this month ({$scanUsage['monthName']}). SuperAdmin has unlimited scan capacity. Please enter bills manually or contact SuperAdmin.",
+                'scan_usage' => $scanUsage,
+            ], 429);
+        }
+
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'bill_file' => 'required|file|max:25600',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first('bill_file') ?: 'Uploaded file is invalid or too large.',
+            ], 422);
+        }
+
+        try {
+            $extracted = $llmService->scan($request->file('bill_file'));
+
+            if (isset($extracted['financial_summary']) && is_array($extracted['financial_summary'])) {
+                $extracted['subtotal'] = $extracted['subtotal'] ?? $extracted['financial_summary']['subtotal'] ?? null;
+                $extracted['gross_discount'] = $extracted['gross_discount'] ?? $extracted['financial_summary']['gross_discount'] ?? $extracted['financial_summary']['discount'] ?? null;
+                $extracted['round_off'] = $extracted['round_off'] ?? $extracted['financial_summary']['round_off'] ?? null;
+            }
+
+            // Record scan log safely
+            try {
+                $ownerId = $this->getOwnerId();
+                $logUserId = $ownerId > 0 ? $ownerId : (int) (auth()->id() ?? 1);
+                \App\Models\AiScanLog::create([
+                    'user_id' => $logUserId,
+                ]);
+            } catch (\Throwable $logEx) {
+                \Illuminate\Support\Facades\Log::warning('Could not record ai_scan_log: ' . $logEx->getMessage());
+            }
+
+            $updatedUsage = $this->getScanUsage();
+
+            $invoiceNumber = trim((string) ($extracted['invoice_number'] ?? $extracted['po_number'] ?? ''));
+            $ownerIds = $this->getStoreUserIds();
+
+            $existing = null;
+            if ($invoiceNumber !== '') {
+                $existing = Invoice::whereIn('user_id', $ownerIds)
+                    ->where(function ($q) use ($invoiceNumber) {
+                        $q->where('invoice_number', $invoiceNumber)
+                          ->orWhere('invoice_number', 'like', $invoiceNumber);
+                    })
+                    ->first();
+            }
+
+            $storedBillPath = null;
+            try {
+                if ($request->hasFile('bill_file')) {
+                    $storedBillPath = $request->file('bill_file')->store('invoices', 'public');
+                }
+            } catch (\Throwable $fileEx) {
+                \Illuminate\Support\Facades\Log::warning('Could not pre-store scanned invoice: ' . $fileEx->getMessage());
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $extracted,
+                'bill_file' => $storedBillPath,
+                'scan_usage' => $updatedUsage,
+                'is_duplicate' => $existing !== null,
+                'duplicate_invoice' => $existing ? [
+                    'id' => $existing->id,
+                    'invoice_number' => $existing->invoice_number,
+                    'customer_name' => $existing->customer_name,
+                    'invoice_date' => $existing->invoice_date,
+                    'total_amount' => $existing->total_amount,
+                    'status' => $existing->status,
+                ] : null,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Sales Invoice scan failed', ['message' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function store(Request $request)
+    {
+        $ownerId = $this->getOwnerId();
+        if ($ownerId <= 0) {
+            return back()->with('error', 'Please switch to an admin store from the topbar before generating invoices.');
+        }
+        $ownerIds = $this->getStoreUserIds();
+
+        $request->validate([
+            'invoice_number' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('invoices', 'invoice_number')->where(fn ($query) => $query->whereIn('user_id', $ownerIds)),
+            ],
+            'invoice_date' => 'required|date',
+            'customer_name' => 'required|string|max:255',
+            'seller_name' => 'required|string|max:255',
+            'items' => 'required|array|min:1',
+            'items.*.item_name' => 'required|string|max:255',
+            'items.*.dimension' => 'nullable|string|max:100',
+            'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.rate' => 'required|numeric|min:0',
+        ]);
+
+        // Stock validation:
+        // Verify quantity does not exceed actual inventory stock for items linked to inventory
+        foreach ($request->items as $row) {
+            $qty = max(0.001, (float) ($row['quantity'] ?? 1));
+            $invId = !empty($row['inventory_id']) ? (int) $row['inventory_id'] : null;
+
+            $inventoryItem = null;
+            if ($invId) {
+                $inventoryItem = Inventory::whereIn('user_id', $ownerIds)->where('id', $invId)->first();
+            } elseif (!empty($row['item_name'])) {
+                $inventoryItem = Inventory::whereIn('user_id', $ownerIds)
+                    ->where('item', trim($row['item_name']))
+                    ->first();
+            }
+
+            if ($inventoryItem && $qty > (float) $inventoryItem->qty) {
+                $unitStr = $inventoryItem->unit ?: 'PCS';
+                return back()->with('error', "Quantity for item '{$inventoryItem->item}' ({$qty}) exceeds actual inventory stock ({$inventoryItem->qty} {$unitStr}).")->withInput();
+            }
+        }
+
+        DB::beginTransaction();
+        try {
+            // 1. Save / Update Seller Business Profile for future invoices
+            BusinessProfile::updateOrCreate(
+                ['user_id' => $ownerId],
+                [
+                    'business_name' => trim($request->seller_name),
+                    'address' => $request->seller_address ? trim($request->seller_address) : null,
+                    'city' => $request->seller_city ? trim($request->seller_city) : null,
+                    'state' => $request->seller_state ? trim($request->seller_state) : null,
+                    'pincode' => $request->seller_pincode ? trim($request->seller_pincode) : null,
+                    'gst_number' => $request->seller_gst_number ? strtoupper(trim($request->seller_gst_number)) : null,
+                    'phone' => $request->seller_phone ? trim($request->seller_phone) : null,
+                    'email' => $request->seller_email ? trim($request->seller_email) : null,
+                    'pan_number' => $request->seller_pan ? strtoupper(trim($request->seller_pan)) : null,
+                    'bank_name' => $request->bank_name ? trim($request->bank_name) : null,
+                    'bank_account_number' => $request->bank_account_number ? trim($request->bank_account_number) : null,
+                    'bank_ifsc' => $request->bank_ifsc ? strtoupper(trim($request->bank_ifsc)) : null,
+                    'bank_branch' => $request->bank_branch ? trim($request->bank_branch) : null,
+                    'terms_and_conditions' => $request->terms ? trim($request->terms) : null,
+                ]
+            );
+
+            // 2. Save / Update Customer Data (Name, Address, GSTIN, Phone, State) for future reuse
+            if (!empty($request->customer_name)) {
+                Customer::updateOrCreate(
+                    [
+                        'user_id' => $ownerId,
+                        'name' => trim($request->customer_name),
+                    ],
+                    [
+                        'address' => $request->customer_address ? trim($request->customer_address) : null,
+                        'gst_number' => $request->customer_gst_number ? strtoupper(trim($request->customer_gst_number)) : null,
+                        'phone' => $request->customer_phone ? trim($request->customer_phone) : null,
+                        'state' => $request->customer_state ? trim($request->customer_state) : null,
+                    ]
+                );
+            }
+
+            // 3. Calculate Totals and Breakdown
+            $taxType = $request->tax_type === 'inter_state' ? 'inter_state' : 'intra_state';
+            $grossDiscount = max(0, (float) ($request->gross_discount ?? 0));
+            $subtotal = 0;
+            $lineDiscount = 0;
+            $cgstAmount = 0;
+            $sgstAmount = 0;
+            $igstAmount = 0;
+            $totalTax = 0;
+
+            $itemsData = [];
+            foreach ($request->items as $row) {
+                $qty = max(0.001, (float) ($row['quantity'] ?? 1));
+                $rate = max(0, (float) ($row['rate'] ?? 0));
+                $discPct = max(0, min(100, (float) ($row['discount_percent'] ?? 0)));
+                $gstRate = max(0, min(100, (float) ($row['gst_rate'] ?? 0)));
+                $dim = !empty($row['dimension']) ? trim($row['dimension']) : null;
+
+                $rowSubtotal = $qty * $rate;
+                $rowDiscount = ($rowSubtotal * $discPct) / 100;
+                $rowTaxable = max(0, $rowSubtotal - $rowDiscount);
+
+                $rowCgstRate = 0;
+                $rowCgstAmt = 0;
+                $rowSgstRate = 0;
+                $rowSgstAmt = 0;
+                $rowIgstRate = 0;
+                $rowIgstAmt = 0;
+
+                if ($taxType === 'inter_state') {
+                    $rowIgstRate = $gstRate;
+                    $rowIgstAmt = ($rowTaxable * $rowIgstRate) / 100;
+                } else {
+                    $rowCgstRate = $gstRate / 2;
+                    $rowCgstAmt = ($rowTaxable * $rowCgstRate) / 100;
+                    $rowSgstRate = $gstRate / 2;
+                    $rowSgstAmt = ($rowTaxable * $rowSgstRate) / 100;
+                }
+
+                $rowTotal = $rowTaxable + $rowCgstAmt + $rowSgstAmt + $rowIgstAmt;
+
+                $subtotal += $rowSubtotal;
+                $lineDiscount += $rowDiscount;
+                $cgstAmount += $rowCgstAmt;
+                $sgstAmount += $rowSgstAmt;
+                $igstAmount += $rowIgstAmt;
+                $totalTax += ($rowCgstAmt + $rowSgstAmt + $rowIgstAmt);
+
+                $invId = !empty($row['inventory_id']) ? (int) $row['inventory_id'] : null;
+                if (!$invId && !empty($row['item_name'])) {
+                    $matched = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($row['item_name']))->first();
+                    if ($matched) {
+                        $invId = $matched->id;
+                    }
+                }
+
+                $itemsData[] = [
+                    'inventory_id' => $invId,
+                    'item_name' => trim($row['item_name']),
+                    'hsn_sac' => !empty($row['hsn_sac']) ? trim($row['hsn_sac']) : null,
+                    'dimension' => $dim,
+                    'quantity' => $qty,
+                    'unit' => !empty($row['unit']) ? strtoupper(trim($row['unit'])) : 'PCS',
+                    'rate' => $rate,
+                    'discount_percent' => $discPct,
+                    'discount_amount' => round($rowDiscount, 2),
+                    'taxable_value' => round($rowTaxable, 2),
+                    'gst_rate' => $gstRate,
+                    'cgst_rate' => $rowCgstRate,
+                    'cgst_amount' => round($rowCgstAmt, 2),
+                    'sgst_rate' => $rowSgstRate,
+                    'sgst_amount' => round($rowSgstAmt, 2),
+                    'igst_rate' => $rowIgstRate,
+                    'igst_amount' => round($rowIgstAmt, 2),
+                    'total_amount' => round($rowTotal, 2),
+                ];
+            }
+
+            // If gross discount is provided at bill level, adjust tax proportionally if applicable or adjust taxable amount
+            $totalDiscount = $lineDiscount + $grossDiscount;
+            $taxableAmount = max(0, $subtotal - $totalDiscount);
+
+            // Re-scale GST if gross discount is applied post-item
+            if ($grossDiscount > 0 && ($subtotal - $lineDiscount) > 0) {
+                $discountRatio = max(0, 1 - ($grossDiscount / ($subtotal - $lineDiscount)));
+                $cgstAmount = round($cgstAmount * $discountRatio, 2);
+                $sgstAmount = round($sgstAmount * $discountRatio, 2);
+                $igstAmount = round($igstAmount * $discountRatio, 2);
+                $totalTax = round($cgstAmount + $sgstAmount + $igstAmount, 2);
+            }
+
+            $rawTotal = $taxableAmount + $totalTax;
+            $roundedTotal = round($rawTotal);
+            $roundOff = round($roundedTotal - $rawTotal, 2);
+
+            $status = in_array($request->status, ['Paid', 'Unpaid', 'Partially Paid']) ? $request->status : 'Paid';
+            $paidAmount = 0;
+            $paidAt = null;
+            if ($status === 'Paid') {
+                $paidAmount = $roundedTotal;
+                $paidAt = $request->invoice_date ?: date('Y-m-d');
+            } elseif ($status === 'Partially Paid') {
+                $paidAmount = max(0, min($roundedTotal, (float) ($request->paid_amount ?? 0)));
+            }
+
+            // 4. Create Invoice Record
+            $invoice = Invoice::create([
+                'user_id' => $ownerId,
+                'invoice_number' => trim($request->invoice_number),
+                'invoice_date' => $request->invoice_date,
+                'due_date' => $request->due_date ?: null,
+                'status' => $status,
+                'tax_type' => $taxType,
+                'seller_name' => trim($request->seller_name),
+                'seller_address' => $request->seller_address ? trim($request->seller_address) : null,
+                'seller_gst_number' => $request->seller_gst_number ? strtoupper(trim($request->seller_gst_number)) : null,
+                'seller_phone' => $request->seller_phone ? trim($request->seller_phone) : null,
+                'seller_state' => $request->seller_state ? trim($request->seller_state) : null,
+                'customer_name' => trim($request->customer_name),
+                'customer_address' => $request->customer_address ? trim($request->customer_address) : null,
+                'customer_gst_number' => $request->customer_gst_number ? strtoupper(trim($request->customer_gst_number)) : null,
+                'customer_phone' => $request->customer_phone ? trim($request->customer_phone) : null,
+                'customer_state' => $request->customer_state ? trim($request->customer_state) : null,
+                'place_of_supply' => $request->place_of_supply ? trim($request->place_of_supply) : ($request->customer_state ?: null),
+                'subtotal' => round($subtotal, 2),
+                'gross_discount' => round($grossDiscount, 2),
+                'total_discount' => round($totalDiscount, 2),
+                'taxable_amount' => round($taxableAmount, 2),
+                'cgst_amount' => round($cgstAmount, 2),
+                'sgst_amount' => round($sgstAmount, 2),
+                'igst_amount' => round($igstAmount, 2),
+                'total_tax' => round($totalTax, 2),
+                'round_off' => $roundOff,
+                'total_amount' => $roundedTotal,
+                'paid_amount' => round($paidAmount, 2),
+                'paid_at' => $paidAt,
+                'notes' => $request->notes ? trim($request->notes) : null,
+                'terms' => $request->terms ? trim($request->terms) : null,
+            ]);
+
+            // 5. Create Items & Deduct quantity from Inventory
+            foreach ($itemsData as $it) {
+                $createdItem = $invoice->items()->create($it);
+
+                // Deduct real quantity from inventory whenever item is linked to inventory or matches name
+                $inv = null;
+                if (!empty($createdItem->inventory_id)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('id', $createdItem->inventory_id)->first();
+                }
+                if (!$inv && !empty($createdItem->item_name)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($createdItem->item_name))->first();
+                }
+                if ($inv) {
+                    $inv->decrement('qty', (float) $createdItem->quantity);
+                }
+            }
+
+            DB::commit();
+
+            if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
+                try {
+                    $waService = app(\App\Services\WhatsAppService::class);
+                    $tmpl = $waService->getTemplate($invoice->user_id, 'bill_created');
+                    $msgData = $waService->buildInvoiceMessageData($invoice);
+                    $rendered = $waService->renderTemplate($tmpl->message, $msgData);
+                    $res = $waService->sendText(
+                        phone: $invoice->customer_phone,
+                        message: $rendered,
+                        merchantId: $invoice->user_id,
+                        triggerType: 'bill_created',
+                        invoiceId: $invoice->id,
+                        recipientName: $invoice->customer_name
+                    );
+                    if (!empty($res['wa_me_url']) && ($res['status'] ?? '') === 'fallback_link') {
+                        session()->flash('wa_me_url', $res['wa_me_url']);
+                    }
+                } catch (\Throwable $waErr) {
+                    \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on store: " . $waErr->getMessage());
+                }
+            }
+
+            return redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created successfully.");
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to generate invoice: ' . $e->getMessage())->withInput();
+        }
+    }
+
+    public function update(Request $request, $id)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $isSuperAdmin = auth()->user()?->isSuperAdmin();
+
+        $query = Invoice::where('id', $id)->with('items');
+        if (!$isSuperAdmin) {
+            $query->whereIn('user_id', $ownerIds);
+        }
+        $invoice = $query->firstOrFail();
+
+        $request->validate([
+            'invoice_number' => [
+                'required',
+                'string',
+                'max:100',
+                Rule::unique('invoices', 'invoice_number')->where(fn ($query) => $query->whereIn('user_id', $ownerIds))->ignore($invoice->id),
+            ],
+            'invoice_date' => 'required|date',
+            'customer_name' => 'required|string|max:255',
+            'seller_name' => 'required|string|max:255',
+            'items' => 'required|array|min:1',
+            'items.*.item_name' => 'required|string|max:255',
+            'items.*.dimension' => 'nullable|string|max:100',
+            'items.*.quantity' => 'required|numeric|min:0.001',
+            'items.*.rate' => 'required|numeric|min:0',
+        ]);
+
+        $ownerId = $invoice->user_id;
+
+        DB::beginTransaction();
+        try {
+            // Restore previous inventory stock that was deducted by old items
+            foreach ($invoice->items as $oldItem) {
+                $inv = null;
+                if (!empty($oldItem->inventory_id)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('id', $oldItem->inventory_id)->first();
+                }
+                if (!$inv && !empty($oldItem->item_name)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($oldItem->item_name))->first();
+                }
+                if ($inv) {
+                    $inv->increment('qty', (float) $oldItem->quantity);
+                }
+            }
+
+            // Stock validation for new items
+            foreach ($request->items as $row) {
+                $qty = max(0.001, (float) ($row['quantity'] ?? 1));
+                $invId = !empty($row['inventory_id']) ? (int) $row['inventory_id'] : null;
+
+                $inventoryItem = null;
+                if ($invId) {
+                    $inventoryItem = Inventory::whereIn('user_id', $ownerIds)->where('id', $invId)->first();
+                } elseif (!empty($row['item_name'])) {
+                    $inventoryItem = Inventory::whereIn('user_id', $ownerIds)
+                        ->where('item', trim($row['item_name']))
+                        ->first();
+                }
+
+                if ($inventoryItem && $qty > (float) $inventoryItem->qty) {
+                    DB::rollBack();
+                    $unitStr = $inventoryItem->unit ?: 'PCS';
+                    return back()->with('error', "Quantity for item '{$inventoryItem->item}' ({$qty}) exceeds actual inventory stock ({$inventoryItem->qty} {$unitStr}).")->withInput();
+                }
+            }
+
+            // Update business profile
+            BusinessProfile::updateOrCreate(
+                ['user_id' => $ownerId],
+                [
+                    'business_name' => trim($request->seller_name),
+                    'address' => $request->seller_address ? trim($request->seller_address) : null,
+                    'city' => $request->seller_city ? trim($request->seller_city) : null,
+                    'state' => $request->seller_state ? trim($request->seller_state) : null,
+                    'pincode' => $request->seller_pincode ? trim($request->seller_pincode) : null,
+                    'gst_number' => $request->seller_gst_number ? strtoupper(trim($request->seller_gst_number)) : null,
+                    'phone' => $request->seller_phone ? trim($request->seller_phone) : null,
+                    'email' => $request->seller_email ? trim($request->seller_email) : null,
+                    'pan_number' => $request->seller_pan ? strtoupper(trim($request->seller_pan)) : null,
+                    'bank_name' => $request->bank_name ? trim($request->bank_name) : null,
+                    'bank_account_number' => $request->bank_account_number ? trim($request->bank_account_number) : null,
+                    'bank_ifsc' => $request->bank_ifsc ? strtoupper(trim($request->bank_ifsc)) : null,
+                    'bank_branch' => $request->bank_branch ? trim($request->bank_branch) : null,
+                    'terms_and_conditions' => $request->terms ? trim($request->terms) : null,
+                ]
+            );
+
+            // Save or Update Customer Details for future use
+            if (!empty($request->customer_name)) {
+                Customer::updateOrCreate(
+                    [
+                        'user_id' => $ownerId,
+                        'name' => trim($request->customer_name),
+                    ],
+                    [
+                        'address' => $request->customer_address ? trim($request->customer_address) : null,
+                        'gst_number' => $request->customer_gst_number ? strtoupper(trim($request->customer_gst_number)) : null,
+                        'phone' => $request->customer_phone ? trim($request->customer_phone) : null,
+                        'state' => $request->customer_state ? trim($request->customer_state) : null,
+                    ]
+                );
+            }
+
+            $taxType = $request->tax_type === 'inter_state' ? 'inter_state' : 'intra_state';
+            $grossDiscount = max(0, (float) ($request->gross_discount ?? 0));
+            $subtotal = 0;
+            $lineDiscount = 0;
+            $cgstAmount = 0;
+            $sgstAmount = 0;
+            $igstAmount = 0;
+            $totalTax = 0;
+
+            $itemsData = [];
+            foreach ($request->items as $row) {
+                $qty = max(0.001, (float) ($row['quantity'] ?? 1));
+                $rate = max(0, (float) ($row['rate'] ?? 0));
+                $discPct = max(0, min(100, (float) ($row['discount_percent'] ?? 0)));
+                $gstRate = max(0, min(100, (float) ($row['gst_rate'] ?? 0)));
+                $dim = !empty($row['dimension']) ? trim($row['dimension']) : null;
+
+                $rowSubtotal = $qty * $rate;
+                $rowDiscount = ($rowSubtotal * $discPct) / 100;
+                $rowTaxable = max(0, $rowSubtotal - $rowDiscount);
+
+                $rowCgstRate = 0;
+                $rowCgstAmt = 0;
+                $rowSgstRate = 0;
+                $rowSgstAmt = 0;
+                $rowIgstRate = 0;
+                $rowIgstAmt = 0;
+
+                if ($taxType === 'inter_state') {
+                    $rowIgstRate = $gstRate;
+                    $rowIgstAmt = ($rowTaxable * $rowIgstRate) / 100;
+                } else {
+                    $rowCgstRate = $gstRate / 2;
+                    $rowCgstAmt = ($rowTaxable * $rowCgstRate) / 100;
+                    $rowSgstRate = $gstRate / 2;
+                    $rowSgstAmt = ($rowTaxable * $rowSgstRate) / 100;
+                }
+
+                $rowTotal = $rowTaxable + $rowCgstAmt + $rowSgstAmt + $rowIgstAmt;
+
+                $subtotal += $rowSubtotal;
+                $lineDiscount += $rowDiscount;
+                $cgstAmount += $rowCgstAmt;
+                $sgstAmount += $rowSgstAmt;
+                $igstAmount += $rowIgstAmt;
+                $totalTax += ($rowCgstAmt + $rowSgstAmt + $rowIgstAmt);
+
+                $invId = !empty($row['inventory_id']) ? (int) $row['inventory_id'] : null;
+                if (!$invId && !empty($row['item_name'])) {
+                    $matched = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($row['item_name']))->first();
+                    if ($matched) {
+                        $invId = $matched->id;
+                    }
+                }
+
+                $itemsData[] = [
+                    'inventory_id' => $invId,
+                    'item_name' => trim($row['item_name']),
+                    'hsn_sac' => !empty($row['hsn_sac']) ? trim($row['hsn_sac']) : null,
+                    'dimension' => $dim,
+                    'quantity' => $qty,
+                    'unit' => !empty($row['unit']) ? strtoupper(trim($row['unit'])) : 'PCS',
+                    'rate' => $rate,
+                    'discount_percent' => $discPct,
+                    'discount_amount' => round($rowDiscount, 2),
+                    'taxable_value' => round($rowTaxable, 2),
+                    'gst_rate' => $gstRate,
+                    'cgst_rate' => $rowCgstRate,
+                    'cgst_amount' => round($rowCgstAmt, 2),
+                    'sgst_rate' => $rowSgstRate,
+                    'sgst_amount' => round($rowSgstAmt, 2),
+                    'igst_rate' => $rowIgstRate,
+                    'igst_amount' => round($rowIgstAmt, 2),
+                    'total_amount' => round($rowTotal, 2),
+                ];
+            }
+
+            // If gross discount is provided at bill level, adjust tax proportionally if applicable or adjust taxable amount
+            $totalDiscount = $lineDiscount + $grossDiscount;
+            $taxableAmount = max(0, $subtotal - $totalDiscount);
+
+            if ($grossDiscount > 0 && ($subtotal - $lineDiscount) > 0) {
+                $discountRatio = max(0, 1 - ($grossDiscount / ($subtotal - $lineDiscount)));
+                $cgstAmount = round($cgstAmount * $discountRatio, 2);
+                $sgstAmount = round($sgstAmount * $discountRatio, 2);
+                $igstAmount = round($igstAmount * $discountRatio, 2);
+                $totalTax = round($cgstAmount + $sgstAmount + $igstAmount, 2);
+            }
+
+            $rawTotal = $taxableAmount + $totalTax;
+            $roundedTotal = round($rawTotal);
+            $roundOff = round($roundedTotal - $rawTotal, 2);
+
+            $status = in_array($request->status, ['Paid', 'Unpaid', 'Partially Paid']) ? $request->status : 'Paid';
+            $paidAmount = 0;
+            $paidAt = null;
+            if ($status === 'Paid') {
+                $paidAmount = $roundedTotal;
+                $paidAt = $invoice->paid_at ?: ($request->invoice_date ?: date('Y-m-d'));
+            } elseif ($status === 'Partially Paid') {
+                $paidAmount = max(0, min($roundedTotal, (float) ($request->paid_amount ?? $invoice->paid_amount ?? 0)));
+            }
+
+            $invoice->update([
+                'invoice_number' => trim($request->invoice_number),
+                'invoice_date' => $request->invoice_date,
+                'due_date' => $request->due_date ?: null,
+                'status' => $status,
+                'tax_type' => $taxType,
+                'seller_name' => trim($request->seller_name),
+                'seller_address' => $request->seller_address ? trim($request->seller_address) : null,
+                'seller_gst_number' => $request->seller_gst_number ? strtoupper(trim($request->seller_gst_number)) : null,
+                'seller_phone' => $request->seller_phone ? trim($request->seller_phone) : null,
+                'seller_state' => $request->seller_state ? trim($request->seller_state) : null,
+                'customer_name' => trim($request->customer_name),
+                'customer_address' => $request->customer_address ? trim($request->customer_address) : null,
+                'customer_gst_number' => $request->customer_gst_number ? strtoupper(trim($request->customer_gst_number)) : null,
+                'customer_phone' => $request->customer_phone ? trim($request->customer_phone) : null,
+                'customer_state' => $request->customer_state ? trim($request->customer_state) : null,
+                'place_of_supply' => $request->place_of_supply ? trim($request->place_of_supply) : ($request->customer_state ?: null),
+                'subtotal' => round($subtotal, 2),
+                'gross_discount' => round($grossDiscount, 2),
+                'total_discount' => round($totalDiscount, 2),
+                'taxable_amount' => round($taxableAmount, 2),
+                'cgst_amount' => round($cgstAmount, 2),
+                'sgst_amount' => round($sgstAmount, 2),
+                'igst_amount' => round($igstAmount, 2),
+                'total_tax' => round($totalTax, 2),
+                'round_off' => $roundOff,
+                'total_amount' => $roundedTotal,
+                'paid_amount' => round($paidAmount, 2),
+                'paid_at' => $paidAt,
+                'notes' => $request->notes ? trim($request->notes) : null,
+            ]);
+
+            // Replace items and apply new deductions
+            $invoice->items()->delete();
+            foreach ($itemsData as $it) {
+                $createdItem = $invoice->items()->create($it);
+
+                $inv = null;
+                if (!empty($createdItem->inventory_id)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('id', $createdItem->inventory_id)->first();
+                }
+                if (!$inv && !empty($createdItem->item_name)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($createdItem->item_name))->first();
+                }
+                if ($inv) {
+                    $inv->decrement('qty', (float) $createdItem->quantity);
+                }
+            }
+
+            DB::commit();
+
+            if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
+                try {
+                    $waService = app(\App\Services\WhatsAppService::class);
+                    $tmpl = $waService->getTemplate($invoice->user_id, 'bill_updated');
+                    $msgData = $waService->buildInvoiceMessageData($invoice);
+                    $rendered = $waService->renderTemplate($tmpl->message, $msgData);
+                    $res = $waService->sendText(
+                        phone: $invoice->customer_phone,
+                        message: $rendered,
+                        merchantId: $invoice->user_id,
+                        triggerType: 'bill_updated',
+                        invoiceId: $invoice->id,
+                        recipientName: $invoice->customer_name
+                    );
+                    if (!empty($res['wa_me_url']) && ($res['status'] ?? '') === 'fallback_link') {
+                        session()->flash('wa_me_url', $res['wa_me_url']);
+                    }
+                } catch (\Throwable $waErr) {
+                    \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on update: " . $waErr->getMessage());
+                }
+            }
+
+            return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated successfully.");
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to update invoice: ' . $e->getMessage())->withInput();
+        }
+    }
+
+    public function destroy($id)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $isSuperAdmin = auth()->user()?->isSuperAdmin();
+
+        $query = Invoice::where('id', $id)->with('items');
+        if (!$isSuperAdmin) {
+            $query->whereIn('user_id', $ownerIds);
+        }
+        $invoice = $query->firstOrFail();
+        $num = $invoice->invoice_number;
+
+        DB::beginTransaction();
+        try {
+            // Restore inventory stock for items
+            foreach ($invoice->items as $item) {
+                $inv = null;
+                if (!empty($item->inventory_id)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('id', $item->inventory_id)->first();
+                }
+                if (!$inv && !empty($item->item_name)) {
+                    $inv = Inventory::whereIn('user_id', $ownerIds)->where('item', trim($item->item_name))->first();
+                }
+                if ($inv) {
+                    $inv->increment('qty', (float) $item->quantity);
+                }
+            }
+
+            $invoice->delete();
+            DB::commit();
+
+            return redirect()->route('invoices.index')->with('success', "Invoice #{$num} deleted successfully.");
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return back()->with('error', 'Failed to delete invoice: ' . $e->getMessage());
+        }
+    }
+
+    public function print($id)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $isSuperAdmin = auth()->user()?->isSuperAdmin();
+
+        $query = Invoice::where('id', $id)->with(['items']);
+        if (!$isSuperAdmin) {
+            $query->whereIn('user_id', $ownerIds);
+        }
+        $invoice = $query->firstOrFail();
+
+        $businessProfile = BusinessProfile::where('user_id', $invoice->user_id)->first();
+
+        return Inertia::render('Invoices/Print', [
+            'invoice' => $invoice,
+            'businessProfile' => $businessProfile,
+        ]);
+    }
+
+    public function searchInventory(Request $request)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $q = trim($request->input('q', ''));
+
+        $query = Inventory::whereIn('user_id', $ownerIds);
+
+        if (!empty($q)) {
+            $query->where(function ($sub) use ($q) {
+                $sub->where('item', 'LIKE', "%{$q}%")
+                    ->orWhere('code', 'LIKE', "%{$q}%");
+            });
+        }
+
+        $items = $query->orderBy('item', 'asc')
+            ->limit(25)
+            ->get(['id', 'item', 'code', 'selling_price', 'qty', 'unit']);
+
+        return response()->json($items);
+    }
+}

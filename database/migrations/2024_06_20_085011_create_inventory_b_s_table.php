@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('inventory_b_s', function (Blueprint $table) {
             $table->id();
             $table->string('item');
-            $table->integer('hsn');
+            $table->string('code');
             $table->integer('qty');
             $table->timestamps();
         });
