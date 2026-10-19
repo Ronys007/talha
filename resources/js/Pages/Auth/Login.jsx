@@ -115,23 +115,6 @@ export default function Login({ status }) {
                     </button>
                 </form>
 
-                <div className="auth-divider">
-                    <Link href="/forgot-password" className="auth-link">
-                        Forgot your password?
-                    </Link>
-                </div>
-                <div
-                    style={{
-                        textAlign: "center",
-                        fontSize: 13,
-                        color: "var(--text-muted)",
-                    }}
-                >
-                    Don't have an account?{" "}
-                    <Link href="/register" className="auth-link">
-                        Register
-                    </Link>
-                </div>
             </div>
         </AuthLayout>
     );

@@ -105,14 +105,14 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
         }
     }
 
-    const divisor = parseInt(order.discount_divisor) || 1;
+    const divisor = Math.max(1, parseInt(order?.discount_divisor, 10) || 1);
     const hasDivisor = divisor > 1;
-    const hasItemDiscounts = order.items?.some(
+    const hasItemDiscounts = order?.items?.some(
         (i) => (parseFloat(i.discount_percent) || 0) > 0
     );
 
     const subtotalMRP =
-        order.items?.reduce(
+        order?.items?.reduce(
             (s, i) =>
                 s +
                 (parseFloat(i.selling_price) || 0) *
@@ -121,7 +121,7 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
         ) ?? 0;
 
     const dividedSubtotal =
-        order.items?.reduce((s, i) => {
+        order?.items?.reduce((s, i) => {
             const sp = parseFloat(i.selling_price) || 0;
             const dsp = hasDivisor ? sp / divisor : sp;
             return s + dsp * (parseFloat(i.quantity) || 0);
@@ -130,7 +130,7 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
     const formulaDiscount = hasDivisor ? subtotalMRP - dividedSubtotal : 0;
 
     const netSubtotal =
-        order.items?.reduce((s, i) => {
+        order?.items?.reduce((s, i) => {
             const sp = parseFloat(i.selling_price) || 0;
             const dsp = hasDivisor ? sp / divisor : sp;
             const disc = parseFloat(i.discount_percent) || 0;
@@ -140,9 +140,9 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
 
     const itemDiscountTotal =
         (hasDivisor ? dividedSubtotal : subtotalMRP) - netSubtotal;
-    const total = parseFloat(order.total_price) || netSubtotal;
+    const total = parseFloat(order?.total_price) || netSubtotal;
     const totalQty =
-        order.items?.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0) ?? 0;
+        order?.items?.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0) ?? 0;
     const discount = subtotalMRP - total;
 
     const numExtraCols =
@@ -204,20 +204,6 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
         return new Date(d).toLocaleDateString("en-IN", { dateStyle: "medium" });
     }
 
-    let totalDiscountLabel = t["Total Discount"];
-    if (hasDivisor && formulaDiscount > 0.005 && itemDiscountTotal > 0.005) {
-        totalDiscountLabel = isHindi
-            ? `कुल छूट (मुल्य ÷ ${divisor}: -${fmt(formulaDiscount)} + आइटम छूट: -${fmt(itemDiscountTotal)})`
-            : `Total Discount (Price ÷ ${divisor}: -${fmt(formulaDiscount)} + Item Disc: -${fmt(itemDiscountTotal)})`;
-    } else if (hasDivisor && formulaDiscount > 0.005) {
-        totalDiscountLabel = isHindi
-            ? `कुल छूट (मुल्य ÷ ${divisor}: -${fmt(formulaDiscount)})`
-            : `Total Discount (Price ÷ ${divisor}: -${fmt(formulaDiscount)})`;
-    } else if (itemDiscountTotal > 0.005) {
-        totalDiscountLabel = isHindi
-            ? `कुल छूट (आइटम छूट: -${fmt(itemDiscountTotal)})`
-            : `Total Discount (Item Disc: -${fmt(itemDiscountTotal)})`;
-    }
 
     const TH = ({ children, right }) => (
         <th
@@ -644,7 +630,7 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                         ? dividedPrice * (1 - discPercent / 100)
                                         : dividedPrice;
                                 const lineTotal =
-                                    (parseFloat(item.quantity) || 0) * netPrice;
+                                    Math.round((parseFloat(item.quantity) || 0) * netPrice * 100) / 100;
 
                                 return (
                                     <tr
@@ -867,11 +853,11 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                 </td>
                             </tr>
 
-                            {/* Breakdown: Formula Discount (when both formula and item discounts exist) */}
-                            {hasDivisor && formulaDiscount > 0.005 && itemDiscountTotal > 0.005 && (
+                            {/* Price / Formula Discount Row */}
+                            {hasDivisor && formulaDiscount > 0.005 && (
                                 <tr
                                     style={{
-                                        borderTop: "1px solid #f1f5f9",
+                                        borderTop: "1px solid #fecaca",
                                         background: "#ffffff",
                                     }}
                                 >
@@ -879,9 +865,9 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                     <td
                                         colSpan={2}
                                         style={{
-                                            padding: "7px 12px",
-                                            fontSize: 12,
-                                            fontWeight: 600,
+                                            padding: "8px 12px",
+                                            fontSize: 12.5,
+                                            fontWeight: 700,
                                             color: "#dc2626",
                                             textAlign: "right",
                                             whiteSpace: "nowrap",
@@ -895,10 +881,10 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                     </td>
                                     <td
                                         style={{
-                                            padding: "7px 12px",
+                                            padding: "8px 12px",
                                             textAlign: "right",
-                                            fontSize: 12.5,
-                                            fontWeight: 700,
+                                            fontSize: 13,
+                                            fontWeight: 800,
                                             color: "#dc2626",
                                             whiteSpace: "nowrap",
                                         }}
@@ -908,11 +894,11 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                 </tr>
                             )}
 
-                            {/* Breakdown: Item Discount (when both formula and item discounts exist) */}
-                            {hasDivisor && formulaDiscount > 0.005 && itemDiscountTotal > 0.005 && (
+                            {/* Item Discount Row */}
+                            {itemDiscountTotal > 0.005 && (
                                 <tr
                                     style={{
-                                        borderTop: "1px solid #f1f5f9",
+                                        borderTop: "1px solid #fecaca",
                                         background: "#ffffff",
                                     }}
                                 >
@@ -920,9 +906,9 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                     <td
                                         colSpan={2}
                                         style={{
-                                            padding: "7px 12px",
-                                            fontSize: 12,
-                                            fontWeight: 600,
+                                            padding: "8px 12px",
+                                            fontSize: 12.5,
+                                            fontWeight: 700,
                                             color: "#dc2626",
                                             textAlign: "right",
                                             whiteSpace: "nowrap",
@@ -932,50 +918,7 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                     </td>
                                     <td
                                         style={{
-                                            padding: "7px 12px",
-                                            textAlign: "right",
-                                            fontSize: 12.5,
-                                            fontWeight: 700,
-                                            color: "#dc2626",
-                                            whiteSpace: "nowrap",
-                                        }}
-                                    >
-                                        -{fmt(itemDiscountTotal)}
-                                    </td>
-                                </tr>
-                            )}
-
-                            {/* Total Discount Row */}
-                            {discount > 0.005 && (
-                                <tr
-                                    style={{
-                                        borderTop: "1px solid #fecaca",
-                                        background: "#fef2f2",
-                                    }}
-                                >
-                                    <td colSpan={2 + numExtraCols}></td>
-                                    <td
-                                        colSpan={2}
-                                        style={{
-                                            padding: "9px 12px",
-                                            fontSize: 12.5,
-                                            fontWeight: 700,
-                                            color: "#dc2626",
-                                            textAlign: "right",
-                                            whiteSpace: "nowrap",
-                                        }}
-                                    >
-                                        {hasDivisor && !itemDiscountTotal
-                                            ? divisor === 2
-                                                ? isHindi ? "कुल छूट (मुल्य ÷ 2):" : "Total Discount (Price ÷ 2):"
-                                                : divisor === 3
-                                                  ? isHindi ? "कुल छूट (मुल्य ÷ 3):" : "Total Discount (Price ÷ 3):"
-                                                  : `Total Discount (Price ÷ ${divisor}):`
-                                            : `${t["Total Discount"]}:`}
-                                    </td>
-                                    <td
-                                        style={{
-                                            padding: "9px 12px",
+                                            padding: "8px 12px",
                                             textAlign: "right",
                                             fontSize: 13,
                                             fontWeight: 800,
@@ -983,7 +926,7 @@ export default function Print({ order: initialOrder, ledger: initialLedger }) {
                                             whiteSpace: "nowrap",
                                         }}
                                     >
-                                        -{fmt(discount)}
+                                        -{fmt(itemDiscountTotal)}
                                     </td>
                                 </tr>
                             )}

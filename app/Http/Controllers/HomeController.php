@@ -25,17 +25,21 @@ class HomeController extends Controller
 
         $orders = Order::where('user_id', $userId)
             ->where('mode', $mode)
-            ->get();
+            ->get(['id', 'total_price']);
+
+        $billIds = $orders->pluck('id');
+        $txns = Transaction::whereIn('order_b_s_id', $billIds)
+            ->where('user_id', $userId)
+            ->get(['order_b_s_id', 'type', 'amount'])
+            ->groupBy('order_b_s_id');
 
         $pendingBalance = 0;
         foreach ($orders as $order) {
-            $transactions = Transaction::where('order_b_s_id', $order->id)
-                ->where('user_id', $userId)
-                ->get();
-            $balance = $order->total_price;
-            foreach ($transactions as $t) {
-                if ($t->type === 'credit') $balance += $t->amount;
-                else if ($t->type === 'receive') $balance -= $t->amount;
+            $orderTxns = $txns->get($order->id, collect());
+            $balance = (float) $order->total_price;
+            foreach ($orderTxns as $t) {
+                if ($t->type === 'credit') $balance += (float) $t->amount;
+                else if ($t->type === 'receive') $balance -= (float) $t->amount;
             }
             if ($balance > 0) $pendingBalance += $balance;
         }

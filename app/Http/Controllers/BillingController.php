@@ -50,16 +50,19 @@ class BillingController extends Controller
         $hasMore = $orders->count() > $perPage;
         if ($hasMore) $orders = $orders->take($perPage);
 
-        // Calculate balance for each order
-        foreach ($orders as $order) {
-            $combinedData = Transaction::where('order_b_s_id', $order->id)
-                ->where('user_id', $ownerId)
-                ->get();
+        // Calculate balance for each order efficiently
+        $billIds = $orders->pluck('id');
+        $txns = Transaction::whereIn('order_b_s_id', $billIds)
+            ->where('user_id', $ownerId)
+            ->get(['order_b_s_id', 'type', 'amount'])
+            ->groupBy('order_b_s_id');
 
-            $balance = $order->total_price;
+        foreach ($orders as $order) {
+            $combinedData = $txns->get($order->id, collect());
+            $balance = (float) $order->total_price;
             foreach ($combinedData as $data) {
-                if ($data->type === 'credit') $balance += $data->amount;
-                else if ($data->type === 'receive') $balance -= $data->amount;
+                if ($data->type === 'credit') $balance += (float) $data->amount;
+                else if ($data->type === 'receive') $balance -= (float) $data->amount;
             }
             $order->updated_balance = $balance;
             $order->items_count = $order->items->count();
@@ -103,6 +106,15 @@ class BillingController extends Controller
                 $mode = 'standard';
             }
 
+            $items = $request->input('items', []);
+            if (empty($items) || !is_array($items)) {
+                $errMsg = 'No items found in the bill.';
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['error' => $errMsg], 422);
+                }
+                return back()->with('error', $errMsg);
+            }
+
             $order = Order::create([
                 'user_id'          => $ownerId,
                 'mode'             => $mode,
@@ -114,7 +126,7 @@ class BillingController extends Controller
                 'total_price'      => $request->total_price,
             ]);
 
-            foreach ($request->items as $item) {
+            foreach ($items as $item) {
                 if (!empty($item['code'])) {
                     $inventoryItem = Inventory::where('code', $item['code'])
                         ->where('user_id', $ownerId)
@@ -134,7 +146,11 @@ class BillingController extends Controller
                         $inventoryItem->save();
                     } else {
                         DB::rollBack();
-                        return back()->with('error', 'Insufficient quantity for item: ' . ($item['item_name'] ?? $item['code']));
+                        $errMsg = 'Insufficient quantity for item: ' . ($item['item_name'] ?? $item['code']) . ($inventoryItem ? ' (Available: ' . $inventoryItem->qty . ')' : ' (Not found in inventory)');
+                        if ($request->wantsJson() || $request->ajax()) {
+                            return response()->json(['error' => $errMsg], 422);
+                        }
+                        return back()->with('error', $errMsg);
                     }
                 } else {
                     $order->items()->create([
@@ -232,7 +248,11 @@ class BillingController extends Controller
 
             if (!$request->has('items') || empty($request->items)) {
                 DB::rollBack();
-                return back()->with('error', 'No items found.');
+                $errMsg = 'No items found.';
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['error' => $errMsg], 422);
+                }
+                return back()->with('error', $errMsg);
             }
 
             foreach ($request->items as $itemData) {
@@ -255,7 +275,11 @@ class BillingController extends Controller
                         $inv->save();
                     } else {
                         DB::rollBack();
-                        return back()->with('error', 'Insufficient quantity for: ' . ($itemData['item_name'] ?? $itemData['code']));
+                        $errMsg = 'Insufficient quantity for: ' . ($itemData['item_name'] ?? $itemData['code']) . ($inv ? ' (Available: ' . $inv->qty . ')' : ' (Not found in inventory)');
+                        if ($request->wantsJson() || $request->ajax()) {
+                            return response()->json(['error' => $errMsg], 422);
+                        }
+                        return back()->with('error', $errMsg);
                     }
                 } else {
                     OrderItem::create([

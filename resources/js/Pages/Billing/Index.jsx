@@ -275,19 +275,7 @@ function StandardBillModal({ bill, onClose, onSaved }) {
     const [visibleErrors, setVisibleErrors] = useState({});
 
     useEffect(() => {
-        if (Object.keys(errors).length > 0) {
-            setVisibleErrors(errors);
-            const timers = Object.keys(errors).map((key) =>
-                setTimeout(() => {
-                    setVisibleErrors((prev) => {
-                        const updated = { ...prev };
-                        delete updated[key];
-                        return updated;
-                    });
-                }, 2000)
-            );
-            return () => timers.forEach((timer) => clearTimeout(timer));
-        }
+        setVisibleErrors(errors);
     }, [errors]);
 
     function addEmptyItem() {
@@ -348,14 +336,19 @@ function StandardBillModal({ bill, onClose, onSaved }) {
         setLoading(true);
         setErrors({});
 
+        // Filter out completely blank rows that the user left unfilled
+        const filledItems = items.filter(
+            (i) => (i.item_name && i.item_name.trim()) || i.code || (parseFloat(i.selling_price) > 0)
+        );
+
         const validationErrors = {};
         if (!customer.trim()) {
             validationErrors.customer = ["Customer name is required."];
         }
-        if (items.length === 0) {
-            validationErrors.items = ["Please add at least one item."];
+        if (filledItems.length === 0) {
+            validationErrors.general = ["Please add at least one item with valid details."];
         }
-        items.forEach((item, index) => {
+        filledItems.forEach((item, index) => {
             if (!item.quantity || parseFloat(item.quantity) <= 0) {
                 validationErrors[`quantity-${index}`] = "Quantity is required and must be greater than 0.";
             } else if (item.stockErr) {
@@ -375,12 +368,12 @@ function StandardBillModal({ bill, onClose, onSaved }) {
         const url = bill ? `/billing/${bill.id}` : "/billing";
         const payload = {
             mode: "standard",
-            customer,
+            customer: customer.trim(),
             discount_divisor: null,
             total_price: total.toFixed(2),
-            items: items.map((i) => ({
+            items: filledItems.map((i) => ({
                 code: i.code || null,
-                item_name: i.item_name,
+                item_name: i.item_name || i.code || "Item",
                 quantity: parseFloat(i.quantity) || 0,
                 selling_price: parseFloat(i.selling_price) || 0,
                 discount_percent: parseFloat(i.discount_percent) || 0,
@@ -389,12 +382,19 @@ function StandardBillModal({ bill, onClose, onSaved }) {
 
         try {
             if (bill) payload._method = "POST";
-            await axios.post(url, payload);
-            onSaved();
-            onClose();
+            const res = await axios.post(url, payload);
+            if (res.data && res.data.success) {
+                onSaved();
+                onClose();
+            } else {
+                setErrors({ general: [res.data?.error || "Error saving bill"] });
+            }
         } catch (err) {
-            if (err.response?.status === 422) {
-                setErrors(err.response.data.errors || { general: [err.response.data.error || "Error saving bill"] });
+            const errData = err.response?.data;
+            if (errData?.errors) {
+                setErrors(errData.errors);
+            } else {
+                setErrors({ general: [errData?.error || err.message || "Failed to save bill. Please try again."] });
             }
         } finally {
             setLoading(false);
@@ -433,6 +433,22 @@ function StandardBillModal({ bill, onClose, onSaved }) {
                     style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                     onSubmit={submit}
                 >
+                    {errors.general && (
+                        <div
+                            style={{
+                                padding: "10px 14px",
+                                background: "#fee2e2",
+                                border: "1px solid #f87171",
+                                borderRadius: 8,
+                                color: "#b91c1c",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                marginBottom: 16,
+                            }}
+                        >
+                            ⚠️ {errors.general[0]}
+                        </div>
+                    )}
                     <div className="form-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
                         <div className="form-group" style={{ maxWidth: 400, flex: "1 1 300px", marginBottom: 0 }}>
                             <label className="form-label">
@@ -1440,19 +1456,7 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
     const [visibleErrors, setVisibleErrors] = useState({});
 
     useEffect(() => {
-        if (Object.keys(errors).length > 0) {
-            setVisibleErrors(errors);
-            const timers = Object.keys(errors).map((key) =>
-                setTimeout(() => {
-                    setVisibleErrors((prev) => {
-                        const updated = { ...prev };
-                        delete updated[key];
-                        return updated;
-                    });
-                }, 2000)
-            );
-            return () => timers.forEach((timer) => clearTimeout(timer));
-        }
+        setVisibleErrors(errors);
     }, [errors]);
 
     function addEmptyItem() {
@@ -1510,9 +1514,11 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
                 });
             }
 
-            const cleanPrev =
-                prev.length === 1 && !prev[0].item_name && !prev[0].code ? [] : prev;
+            const cleanPrev = prev.filter(
+                (item) => Boolean((item.item_name && item.item_name.trim()) || item.code || parseFloat(item.selling_price) > 0)
+            );
 
+            const maxStock = parseFloat(scannedItem.qty) || 0;
             const newItem = {
                 uid: Math.random().toString(36).substr(2, 9),
                 code: scannedItem.code,
@@ -1520,8 +1526,8 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
                 selling_price: scannedItem.selling_price || 0,
                 discount_percent: "",
                 quantity: 1,
-                maxQty: parseFloat(scannedItem.qty) || 999999,
-                stockErr: null,
+                maxQty: maxStock,
+                stockErr: 1 > maxStock ? `Only ${maxStock} in stock` : null,
             };
 
             return [newItem, ...cleanPrev];
@@ -1551,14 +1557,19 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
         setLoading(true);
         setErrors({});
 
+        // Filter out completely blank rows that the user left unfilled
+        const filledItems = items.filter(
+            (i) => (i.item_name && i.item_name.trim()) || i.code || (parseFloat(i.selling_price) > 0)
+        );
+
         const validationErrors = {};
         if (!customer.trim()) {
             validationErrors.customer = ["Customer name is required."];
         }
-        if (items.length === 0) {
-            validationErrors.items = ["Please add at least one item."];
+        if (filledItems.length === 0) {
+            validationErrors.general = ["Please add or scan at least one item."];
         }
-        items.forEach((item, index) => {
+        filledItems.forEach((item, index) => {
             if (!item.quantity || parseFloat(item.quantity) <= 0) {
                 validationErrors[`quantity-${index}`] = "Quantity is required and must be greater than 0.";
             } else if (item.stockErr) {
@@ -1579,24 +1590,32 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
             const url = bill ? `/billing/${bill.id}` : "/billing";
             const payload = {
                 mode: "barcode",
-                customer,
+                customer: customer.trim(),
                 discount_divisor: divisor > 1 ? divisor : null,
                 total_price: total.toFixed(2),
-                items: items.map((i) => ({
+                items: filledItems.map((i) => ({
                     code: i.code || null,
-                    item_name: i.item_name,
+                    item_name: i.item_name || i.code || "Item",
                     quantity: parseFloat(i.quantity) || 0,
                     selling_price: parseFloat(i.selling_price) || 0,
                     discount_percent: parseFloat(i.discount_percent) || 0,
                 })),
             };
             if (bill) payload._method = "POST";
-            await axios.post(url, payload);
-            onSaved();
-            onClose();
+            const res = await axios.post(url, payload);
+            if (res.data && res.data.success) {
+                onSaved();
+                onClose();
+            } else {
+                setErrors({ general: [res.data?.error || "Error saving barcode bill"] });
+            }
         } catch (err) {
-            if (err.response?.status === 422)
-                setErrors(err.response.data.errors || { general: [err.response.data.error || "Error saving bill"] });
+            const errData = err.response?.data;
+            if (errData?.errors) {
+                setErrors(errData.errors);
+            } else {
+                setErrors({ general: [errData?.error || err.message || "Failed to save bill. Please try again."] });
+            }
         } finally {
             setLoading(false);
         }
@@ -1633,6 +1652,22 @@ function BarcodeBillModal({ bill, onClose, onSaved }) {
                         style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                         onSubmit={submit}
                     >
+                        {errors.general && (
+                            <div
+                                style={{
+                                    padding: "10px 14px",
+                                    background: "#fee2e2",
+                                    border: "1px solid #f87171",
+                                    borderRadius: 8,
+                                    color: "#b91c1c",
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    marginBottom: 16,
+                                }}
+                            >
+                                ⚠️ {errors.general[0]}
+                            </div>
+                        )}
                         <div className="form-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
                             <div className="form-group" style={{ maxWidth: 400, flex: "1 1 300px", marginBottom: 0 }}>
                                 <label className="form-label">
@@ -2247,7 +2282,9 @@ export default function BillingIndex() {
     const bills = data?.pages.flatMap((p) => p.data) ?? [];
 
     function invalidate() {
-        qc.invalidateQueries({ queryKey: ["billing", effectiveMode] });
+        qc.invalidateQueries({ queryKey: ["billing"] });
+        qc.refetchQueries({ queryKey: ["billing", effectiveMode] });
+        qc.invalidateQueries({ queryKey: ["inventory", effectiveMode] });
     }
 
     function handleDelete() {
