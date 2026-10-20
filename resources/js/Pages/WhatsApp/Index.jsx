@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { Head, useForm, router } from "@inertiajs/react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Head, useForm, router, usePage } from "@inertiajs/react";
 import AppLayout from "@/Layouts/AppLayout";
 import {
     QrCode,
@@ -20,7 +20,6 @@ import {
     Pause,
     Users,
     Receipt,
-    Percent,
     Sliders,
     HelpCircle,
     ChevronRight,
@@ -33,13 +32,17 @@ import {
     Eye,
     Search,
     Filter,
-    ArrowUpRight,
     FileText,
     Share2,
     Info,
     CheckCheck,
-    TrendingUp,
-    Lock
+    X,
+    ShoppingBag,
+    ImageIcon,
+    Upload,
+    RotateCcw,
+    Download,
+    Paperclip,
 } from "lucide-react";
 
 export default function WhatsAppHub({
@@ -49,8 +52,12 @@ export default function WhatsAppHub({
     broadcasts = [],
     logs,
     quota,
-    customerStats
+    customerStats,
 }) {
+    const { auth } = usePage().props;
+    const isSuperAdmin = auth?.user?.role === "super_admin";
+    const broadcastList = Array.isArray(broadcasts) ? broadcasts : (broadcasts?.data || []);
+
     const [activeTab, setActiveTab] = useState("connect");
     const [status, setStatus] = useState(sessionStatus?.status || "disconnected");
     const [phone, setPhone] = useState(sessionStatus?.phone || null);
@@ -60,6 +67,8 @@ export default function WhatsAppHub({
     const [selectedTemplateTab, setSelectedTemplateTab] = useState("bill_created");
     const [logSearch, setLogSearch] = useState("");
     const [logStatusFilter, setLogStatusFilter] = useState("all");
+    const [imagePreview, setImagePreview] = useState(null);
+    const fileInputRef = useRef(null);
 
     // Test message form
     const testForm = useForm({
@@ -73,16 +82,28 @@ export default function WhatsAppHub({
         google_review_url: profile?.google_review_url || "",
         templates: {
             bill_created: {
-                title: templates?.bill_created?.title || "New Bill Created",
+                title: templates?.bill_created?.title || "New Invoice (Partial / Unpaid)",
                 message: templates?.bill_created?.message || "",
             },
+            bill_paid: {
+                title: templates?.bill_paid?.title || "Payment Received Receipt (Paid)",
+                message: templates?.bill_paid?.message || "",
+            },
             bill_updated: {
-                title: templates?.bill_updated?.title || "Bill Revised / Edited",
+                title: templates?.bill_updated?.title || "Revised Invoice (Updated)",
                 message: templates?.bill_updated?.message || "",
             },
+            partial_payment: {
+                title: templates?.partial_payment?.title || "Partial Payment Received & Balance Due",
+                message: templates?.partial_payment?.message || "",
+            },
             payment_reminder: {
-                title: templates?.payment_reminder?.title || "Payment Reminder (Vasooli)",
+                title: templates?.payment_reminder?.title || "Payment Reminder (Due / Vasooli)",
                 message: templates?.payment_reminder?.message || "",
+            },
+            purchase_reminder: {
+                title: templates?.purchase_reminder?.title || "Purchase Bill Due Reminder (To Pay Supplier)",
+                message: templates?.purchase_reminder?.message || "",
             },
             custom: {
                 title: templates?.custom?.title || "Customer Broadcast & Offers",
@@ -94,9 +115,26 @@ export default function WhatsAppHub({
     // Broadcast form
     const broadcastForm = useForm({
         title: "",
+        recipient_mode: "filter", // "filter" or "custom"
         filter_type: "all",
-        message_template: templates?.custom?.message || "Namaste {customer_name} ji! Vishesh offer from {shop_name}.",
+        custom_numbers: "",
+        image: null,
+        message_template: templates?.custom?.message || "Namaste {customer_name}! Special festive offer from {shop_name}.\n\nVisit us or reply to this message to know more!",
     });
+
+    // Count unique valid mobile numbers parsed from custom_numbers
+    const parsedCustomCount = useMemo(() => {
+        if (!broadcastForm.data.custom_numbers) return 0;
+        const items = broadcastForm.data.custom_numbers.split(/[\r\n,;]+/);
+        const set = new Set();
+        items.forEach((item) => {
+            const c = item.replace(/\D/g, "");
+            if (c.length >= 10 && c.length <= 15) {
+                set.add(c);
+            }
+        });
+        return set.size;
+    }, [broadcastForm.data.custom_numbers]);
 
     // Auto-poll status when QR is waiting or connecting
     useEffect(() => {
@@ -130,6 +168,39 @@ export default function WhatsAppHub({
         };
     }, [status]);
 
+    // Auto-step & poll broadcasts when any campaign is processing or scheduled
+    useEffect(() => {
+        const activeCampaign = broadcastList.find((b) => b.status === "processing" || b.status === "scheduled");
+        let interval = null;
+        let isStepping = false;
+
+        if (activeCampaign) {
+            interval = setInterval(async () => {
+                if (isStepping) return;
+                isStepping = true;
+                try {
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+                    await fetch(`/whatsapp/broadcasts/${activeCampaign.id}/step`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "X-CSRF-TOKEN": csrfToken || "",
+                        },
+                    });
+                    router.reload({ only: ["broadcasts", "quota", "logs"] });
+                } catch (e) {
+                    router.reload({ only: ["broadcasts", "quota", "logs"] });
+                } finally {
+                    isStepping = false;
+                }
+            }, 3000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [broadcastList]);
+
     const handleConnect = () => {
         setStatus("connecting");
         router.post("/whatsapp/session/connect", {}, {
@@ -141,7 +212,7 @@ export default function WhatsAppHub({
                     setPhone(s.phone);
                     setQrCode(s.qr);
                 }
-            }
+            },
         });
     };
 
@@ -153,7 +224,7 @@ export default function WhatsAppHub({
                 setStatus("disconnected");
                 setPhone(null);
                 setQrCode(null);
-            }
+            },
         });
     };
 
@@ -171,19 +242,42 @@ export default function WhatsAppHub({
         });
     };
 
+    const handleImageChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            broadcastForm.setData("image", file);
+            setImagePreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleRemoveImage = () => {
+        broadcastForm.setData("image", null);
+        setImagePreview(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    };
+
     const handleCreateBroadcast = (e) => {
         e.preventDefault();
         broadcastForm.post("/whatsapp/broadcasts", {
+            forceFormData: true,
             preserveScroll: true,
             onSuccess: () => {
-                broadcastForm.reset("title");
+                broadcastForm.reset("title", "custom_numbers", "image");
+                setImagePreview(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
                 setActiveTab("broadcasts");
-            }
+            },
         });
     };
 
     const handlePauseBroadcast = (id) => {
         router.post(`/whatsapp/broadcasts/${id}/pause`, {}, { preserveScroll: true });
+    };
+
+    const handleResumeBroadcast = (id) => {
+        router.post(`/whatsapp/broadcasts/${id}/resume`, {}, { preserveScroll: true });
     };
 
     const handleCancelBroadcast = (id) => {
@@ -198,40 +292,86 @@ export default function WhatsAppHub({
             [selectedTemplateTab]: {
                 ...templatesForm.data.templates[selectedTemplateTab],
                 message: currentMsg + " " + tag + " ",
-            }
+            },
         });
         setCopiedTag(tag);
         setTimeout(() => setCopiedTag(null), 1800);
     };
 
-    const availablePlaceholders = [
-        { tag: "{customer_name}", desc: "Customer Name", preview: "Rahul Sharma" },
-        { tag: "{shop_name}", desc: "Your Store Name", preview: profile?.business_name || "Vama Enterprises" },
-        { tag: "{invoice_no}", desc: "Invoice Number", preview: "INV-2026-0089" },
-        { tag: "{total_amount}", desc: "Bill Total (₹)", preview: "₹4,500.00" },
-        { tag: "{paid_amount}", desc: "Amount Paid (₹)", preview: "₹1,000.00" },
-        { tag: "{balance_due}", desc: "Pending Balance (₹)", preview: "₹3,500.00" },
-        { tag: "{invoice_link}", desc: "Public Digital Bill Link", preview: "https://vamainvoice.com/i/sample88" },
-        { tag: "{upi_link}", desc: "Instant UPI Pay Link", preview: "upi://pay?pa=store@upi&am=3500.00" },
-        { tag: "{google_review_link}", desc: "Google Review Link", preview: profile?.google_review_url || "https://g.page/r/sample/review" },
+    const availablePlaceholders = selectedTemplateTab === "purchase_reminder" ? [
+        { tag: "{user_name}", desc: "Your Merchant / Business Name" },
+        { tag: "{supplier_name}", desc: "Supplier / Vendor Name" },
+        { tag: "{bill_number}", desc: "Supplier Invoice #" },
+        { tag: "{purchase_number}", desc: "Purchase Order Ref (PUR-XXXX)" },
+        { tag: "{total_amount}", desc: "Total Bill Amount" },
+        { tag: "{paid_amount}", desc: "Amount Already Paid" },
+        { tag: "{balance_due}", desc: "Pending Balance Due to Supplier" },
+        { tag: "{due_date}", desc: "Payment Due Date" },
+        { tag: "{days_left_text}", desc: "e.g. 3 days left / Due Today!" },
+    ] : [
+        { tag: "{customer_name}", desc: "Customer Name" },
+        { tag: "{shop_name}", desc: "Shop / Business Name" },
+        { tag: "{invoice_no}", desc: "Invoice #" },
+        { tag: "{due_date}", desc: "Payment Due Date" },
+        { tag: "{total_amount}", desc: "Grand Total" },
+        { tag: "{paid_amount}", desc: "Amount Paid" },
+        { tag: "{balance_due}", desc: "Pending Balance" },
+        { tag: "{payment_section}", desc: "Dynamic UPI Link (Shows only if balance due & UPI configured)" },
+        { tag: "{review_section}", desc: "Google Review Link (Shows only if configured in profile)" },
     ];
 
-    const currentTemplateMessage = templatesForm.data.templates[selectedTemplateTab]?.message || "";
+    const currentTemplateMessage = templatesForm.data.templates?.[selectedTemplateTab]?.message || "";
 
     // Simulated phone message preview
     const previewMessage = useMemo(() => {
-        return (currentTemplateMessage || "No template message written yet.")
+        const hasUpi = Boolean(templatesForm.data.upi_id || profile?.upi_id);
+        const hasReview = Boolean(templatesForm.data.google_review_url || profile?.google_review_url);
+
+        const dummyPaymentSection = hasUpi ? "\n\n⚡ *Quick UPI Pay:* \nupi://pay?pa=store@upi&am=3500.00" : "";
+        const dummyReviewSection = hasReview ? "\n\n⭐ *Review Us on Google:* \n" + (templatesForm.data.google_review_url || profile?.google_review_url || "https://g.page/r/sample/review") : "";
+
+        if (selectedTemplateTab === "purchase_reminder") {
+            return (currentTemplateMessage || "No message template specified.")
+                .replace(/{user_name}/g, profile?.business_name || "Merchant")
+                .replace(/{supplier_name}/g, "Apex Wholesale Dist.")
+                .replace(/{bill_number}/g, "SUPP-INV-992")
+                .replace(/{purchase_number}/g, "PUR-000042")
+                .replace(/{due_date}/g, "25 Oct 2026")
+                .replace(/{days_left_text}/g, "3 days left")
+                .replace(/{total_amount}/g, "15,000.00")
+                .replace(/{paid_amount}/g, "5,000.00")
+                .replace(/{balance_due}/g, "10,000.00");
+        }
+
+        return (currentTemplateMessage || "No message template specified.")
             .replace(/{customer_name}/g, "Rahul Sharma")
             .replace(/{shop_name}/g, profile?.business_name || "Vama Enterprises")
-            .replace(/{invoice_no}/g, "INV-2026-0089")
+            .replace(/{invoice_no}/g, "INV-2026-0042")
+            .replace(/{due_date}/g, "25 Oct 2026")
             .replace(/{total_amount}/g, "4,500.00")
-            .replace(/{paid_amount}/g, "1,000.00")
-            .replace(/{balance_due}/g, "3,500.00")
-            .replace(/{invoice_link}/g, "https://vamainvoice.com/i/sample88")
-            .replace(/{upi_link}/g, "upi://pay?pa=store@upi&am=3500.00")
-            .replace(/{google_review_link}/g, profile?.google_review_url || "https://g.page/r/sample/review")
-            .replace(/{greeting}/g, "Namaste");
-    }, [currentTemplateMessage, profile]);
+            .replace(/{paid_amount}/g, selectedTemplateTab === "bill_paid" ? "4,500.00" : "1,000.00")
+            .replace(/{balance_due}/g, selectedTemplateTab === "bill_paid" ? "0.00" : "3,500.00")
+            .replace(/{invoice_link}/g, "")
+            .replace(/{payment_section}/g, selectedTemplateTab === "bill_paid" ? "" : dummyPaymentSection)
+            .replace(/{review_section}/g, dummyReviewSection)
+            .replace(/{upi_link}/g, hasUpi ? "upi://pay?pa=store@upi&am=3500.00" : "")
+            .replace(/{google_review_link}/g, hasReview ? (templatesForm.data.google_review_url || profile?.google_review_url) : "");
+    }, [currentTemplateMessage, profile, selectedTemplateTab, templatesForm.data.upi_id, templatesForm.data.google_review_url]);
+
+    const formatLogPhone = (raw) => {
+        if (!raw) return "-";
+        const clean = String(raw).replace(/\D/g, "");
+        if (clean.length === 10) {
+            return `+91 ${clean}`;
+        }
+        if (clean.length === 12 && clean.startsWith("91")) {
+            return `+91 ${clean.slice(2)}`;
+        }
+        if (clean.length === 11 && clean.startsWith("0")) {
+            return `+91 ${clean.slice(1)}`;
+        }
+        return clean ? `+${clean}` : "-";
+    };
 
     // Filtered logs
     const filteredLogs = useMemo(() => {
@@ -240,7 +380,10 @@ export default function WhatsAppHub({
             const matchesSearch =
                 !logSearch ||
                 (item.recipient_name && item.recipient_name.toLowerCase().includes(logSearch.toLowerCase())) ||
-                (item.recipient_phone && item.recipient_phone.includes(logSearch)) ||
+                (item.recipient_phone && (
+                    item.recipient_phone.includes(logSearch) ||
+                    formatLogPhone(item.recipient_phone).includes(logSearch)
+                )) ||
                 (item.message && item.message.toLowerCase().includes(logSearch.toLowerCase()));
 
             const matchesStatus =
@@ -253,414 +396,400 @@ export default function WhatsAppHub({
 
     const dailyLimit = quota?.daily_limit || 150;
     const usedToday = quota?.used_today || 0;
-    const quotaPct = Math.min(100, Math.round((usedToday / dailyLimit) * 100));
+    const remainingQuota = quota?.remaining || Math.max(0, dailyLimit - usedToday);
 
     return (
-        <AppLayout title="WhatsApp Hub">
+        <AppLayout title="WhatsApp Automation Hub">
             <Head title="WhatsApp Automation Hub - Vama Invoice" />
 
-            <div className="max-w-7xl mx-auto space-y-6 pb-12">
-                {/* ── TOP HERO HEADER & REAL-TIME STATUS BAR ── */}
-                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-6 md:p-8 text-white shadow-xl">
-                    {/* Background Decorative Rings */}
-                    <div className="absolute -right-16 -top-16 w-80 h-80 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
-                    <div className="absolute right-40 -bottom-20 w-80 h-80 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
-
-                    <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                        <div className="space-y-2 max-w-2xl">
-                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 border border-emerald-400/30 text-emerald-300">
-                                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>100% Free • ₹0 Per Message • Direct Baileys Microservice</span>
-                            </div>
-                            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-                                <span>WhatsApp Automation Hub</span>
-                            </h1>
-                            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                                Deliver real-time GST invoices, automated payment reminders (Vasooli), instant UPI deep-links, and anti-ban customer broadcast campaigns directly from your own WhatsApp number.
-                            </p>
-                        </div>
-
-                        {/* Gateway Status Badge & Quick CTA */}
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
-                            <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-2xl border text-xs font-semibold backdrop-blur-md transition shadow-sm ${
-                                status === "connected"
-                                    ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200"
-                                    : status === "qr_ready"
-                                    ? "bg-amber-500/20 border-amber-400/40 text-amber-200"
-                                    : "bg-rose-500/20 border-rose-400/40 text-rose-200"
-                            }`}>
-                                <span className="relative flex h-2.5 w-2.5">
-                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                                        status === "connected"
-                                            ? "bg-emerald-400"
-                                            : status === "qr_ready"
-                                            ? "bg-amber-400"
-                                            : "bg-rose-400"
-                                    }`} />
-                                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                                        status === "connected"
-                                            ? "bg-emerald-400"
-                                            : status === "qr_ready"
-                                            ? "bg-amber-400"
-                                            : "bg-rose-400"
-                                    }`} />
-                                </span>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold tracking-wider opacity-80">Gateway Status</p>
-                                    <p className="text-xs font-bold">
-                                        {status === "connected"
-                                            ? `Direct Active (+${phone || "Connected"})`
-                                            : status === "qr_ready"
-                                            ? "Waiting for QR Scan"
-                                            : "Disconnected"}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {status === "connected" ? (
-                                <button
-                                    type="button"
-                                    onClick={handleLogout}
-                                    className="px-3.5 py-2.5 rounded-2xl bg-white/10 hover:bg-rose-500/20 border border-white/10 hover:border-rose-400/30 text-white hover:text-rose-200 text-xs font-bold transition flex items-center gap-2 cursor-pointer"
-                                    title="Unlink WhatsApp session"
-                                >
-                                    <LogOut className="w-3.5 h-3.5" />
-                                    <span>Disconnect</span>
-                                </button>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setActiveTab("connect");
-                                        handleConnect();
-                                    }}
-                                    disabled={status === "connecting"}
-                                    className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-bold shadow-lg shadow-emerald-500/25 transition flex items-center gap-2 cursor-pointer"
-                                >
-                                    <QrCode className="w-4 h-4" />
-                                    <span>{status === "connecting" ? "Generating..." : "Pair Phone Now"}</span>
-                                </button>
-                            )}
-                        </div>
+            {/* ── KPI Metrics Bar (Matching exact purchase-stats-grid of Invoices & Purchase) ── */}
+            <div className="purchase-stats-grid cols-5">
+                <div className="purchase-stat-compact">
+                    <div
+                        className="purchase-stat-icon-wrap"
+                        style={{
+                            background: status === "connected" ? "rgba(5, 150, 105, 0.1)" : "rgba(217, 119, 6, 0.1)",
+                            color: status === "connected" ? "var(--success)" : "var(--warning)",
+                        }}
+                    >
+                        <Smartphone size={16} />
                     </div>
-
-                    {/* Executive Metric Strip */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mt-6 pt-6 border-t border-white/10">
-                        <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3.5 border border-white/5">
-                            <div className="flex items-center gap-2 text-slate-300 text-xs">
-                                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Engine Mode</span>
-                            </div>
-                            <p className="text-base font-extrabold text-white mt-1">
-                                {status === "connected" ? "Direct Background" : "Waiting for Pairing"}
-                            </p>
-                            <p className="text-[11px] text-emerald-400 mt-0.5 font-medium">
-                                ₹0 / Message • No Per-SMS Cost
-                            </p>
-                        </div>
-
-                        <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3.5 border border-white/5">
-                            <div className="flex items-center justify-between text-slate-300 text-xs">
-                                <span className="flex items-center gap-1.5">
-                                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                                    <span>Anti-Ban Safety Cap</span>
-                                </span>
-                                <span className="font-mono text-emerald-300 font-bold">{usedToday}/{dailyLimit}</span>
-                            </div>
-                            <div className="w-full bg-white/10 rounded-full h-1.5 mt-2.5 overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${
-                                        quotaPct > 85 ? "bg-rose-400" : quotaPct > 60 ? "bg-amber-400" : "bg-emerald-400"
-                                    }`}
-                                    style={{ width: `${quotaPct}%` }}
-                                />
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-1.5">
-                                {quota?.remaining || dailyLimit} messages safe remaining today
-                            </p>
-                        </div>
-
-                        <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3.5 border border-white/5">
-                            <div className="flex items-center gap-2 text-slate-300 text-xs">
-                                <Users className="w-3.5 h-3.5 text-blue-400" />
-                                <span>Audience Reach</span>
-                            </div>
-                            <p className="text-base font-extrabold text-white mt-1 font-mono">
-                                {customerStats?.total_customers || 0} Customers
-                            </p>
-                            <p className="text-[11px] text-indigo-300 mt-0.5">
-                                {customerStats?.pending_bills_count || 0} with overdue balance
-                            </p>
-                        </div>
-
-                        <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3.5 border border-white/5">
-                            <div className="flex items-center gap-2 text-slate-300 text-xs">
-                                <CheckCheck className="w-3.5 h-3.5 text-teal-400" />
-                                <span>Total Dispatches</span>
-                            </div>
-                            <p className="text-base font-extrabold text-white mt-1 font-mono">
-                                {quota?.total_sent ?? logs?.total ?? 0} Delivered
-                            </p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                                Instant auto-triggers on bills
-                            </p>
-                        </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">Connection Status</span>
+                        <span
+                            className="purchase-stat-num"
+                            style={{
+                                color: status === "connected" ? "var(--success)" : "var(--warning)",
+                                fontSize: 12,
+                                lineHeight: 1.25,
+                            }}
+                            title={status === "connected" ? `Active (+${phone || "Linked"})` : status === "qr_ready" ? "Scan QR Code" : "Disconnected"}
+                        >
+                            {status === "connected" ? (
+                                <>
+                                    Active{" "}
+                                    <span style={{ fontSize: 10.5, fontWeight: 500, color: "var(--text-secondary)", letterSpacing: "-0.01em" }}>
+                                        (+{phone || "Linked"})
+                                    </span>
+                                </>
+                            ) : status === "qr_ready" ? (
+                                "Scan QR Code"
+                            ) : (
+                                "Disconnected"
+                            )}
+                        </span>
                     </div>
                 </div>
 
-                {/* ── TAB NAVIGATION BAR ── */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 p-1.5 shadow-xs flex items-center gap-1 overflow-x-auto">
-                    {[
-                        { id: "connect", label: "Device Link & QR Pairing", icon: Smartphone, subtitle: "Connect merchant WhatsApp" },
-                        { id: "templates", label: "Billing & UPI Templates", icon: Sliders, subtitle: "Customize triggers & UPI" },
-                        { id: "broadcasts", label: "Anti-Ban Broadcasts", icon: Send, badge: broadcasts.some(b => b.status === "processing"), subtitle: "Customer campaigns" },
-                        { id: "logs", label: "Transmission History", icon: Clock, count: logs?.total || 0, subtitle: "Full delivery logs" },
-                    ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
+                <div className="purchase-stat-compact">
+                    <div className="purchase-stat-icon-wrap" style={{ background: "rgba(79, 70, 229, 0.1)", color: "var(--accent)" }}>
+                        <ShieldCheck size={16} />
+                    </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">Daily Anti-Ban Quota</span>
+                        <span className="purchase-stat-num">
+                            {usedToday} / {dailyLimit} <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>({remainingQuota} left)</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div className="purchase-stat-compact">
+                    <div className="purchase-stat-icon-wrap" style={{ background: "rgba(2, 132, 199, 0.1)", color: "var(--info)" }}>
+                        <Users size={16} />
+                    </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">Total Customer Base</span>
+                        <span className="purchase-stat-num">{customerStats?.total_customers || 0}</span>
+                    </div>
+                </div>
+
+                <div className="purchase-stat-compact">
+                    <div className="purchase-stat-icon-wrap" style={{ background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)" }}>
+                        <IndianRupee size={16} />
+                    </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">Pending Vasooli Dues</span>
+                        <span className="purchase-stat-num" style={{ color: "var(--danger)" }}>
+                            ₹{Number(customerStats?.pending_balance_sum || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="purchase-stat-compact">
+                    <div className="purchase-stat-icon-wrap" style={{ background: "rgba(139, 92, 246, 0.1)", color: "#8b5cf6" }}>
+                        <Send size={16} />
+                    </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">Messages Dispatched</span>
+                        <span className="purchase-stat-num">{quota?.total_sent ?? logs?.total ?? 0}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Main Content Card (Matching exact '.card.page-full-card' structure of Invoices and Inventory) ── */}
+            <div className="card page-full-card">
+                {/* ── Table Toolbar with Tabs on Left and Actions on Right ── */}
+                <div className="table-toolbar">
+                    <div className="toolbar-left" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        {[
+                            { id: "connect", label: "Device Link & QR", icon: Smartphone },
+                            ...(isSuperAdmin ? [{ id: "templates", label: "Billing & UPI Templates", icon: Sliders }] : []),
+                            { id: "broadcasts", label: "Broadcast Campaigns", icon: Send, badge: broadcastList.some((b) => b.status === "processing") },
+                            { id: "logs", label: `Message Logs (${logs?.total || 0})`, icon: Clock },
+                        ].map((tab) => {
+                            const Icon = tab.icon;
+                            const isSel = activeTab === tab.id;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setActiveTab(tab.id)}
+                                    style={{
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        padding: "5px 12px",
+                                        borderRadius: 6,
+                                        border: "none",
+                                        background: isSel ? "var(--bg-elevated)" : "transparent",
+                                        color: isSel ? "var(--accent)" : "var(--text-secondary)",
+                                        boxShadow: isSel ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        transition: "all var(--transition)",
+                                    }}
+                                >
+                                    <Icon size={14} />
+                                    <span>{tab.label}</span>
+                                    {tab.badge && (
+                                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)" }} />
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="toolbar-right" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <div
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "4px 10px",
+                                borderRadius: 999,
+                                background: status === "connected" ? "var(--success-bg)" : status === "qr_ready" ? "var(--warning-bg)" : "var(--danger-bg)",
+                                color: status === "connected" ? "var(--success)" : status === "qr_ready" ? "var(--warning)" : "var(--danger)",
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                border: status === "connected" ? "1px solid #a7f3d0" : status === "qr_ready" ? "1px solid #fde68a" : "1px solid #fecdd3",
+                            }}
+                        >
+                            <span
+                                style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: "50%",
+                                    background: status === "connected" ? "var(--success)" : status === "qr_ready" ? "var(--warning)" : "var(--danger)",
+                                }}
+                            />
+                            <span>
+                                {status === "connected"
+                                    ? `Direct Active (+${phone || "Linked"})`
+                                    : status === "qr_ready"
+                                    ? "Scan QR Code"
+                                    : "Gateway Offline"}
+                            </span>
+                        </div>
+
+                        {status === "connected" ? (
                             <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`flex-1 min-w-[200px] flex items-center gap-3 px-4 py-3 rounded-xl text-left transition cursor-pointer select-none ${
-                                    isActive
-                                        ? "bg-slate-900 text-white shadow-md shadow-slate-900/10"
-                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                                }`}
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={handleLogout}
+                                style={{ color: "var(--danger)", borderColor: "#fecdd3" }}
                             >
-                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition ${
-                                    isActive
-                                        ? "bg-white/10 text-emerald-400"
-                                        : "bg-slate-100 text-slate-500"
-                                }`}>
-                                    <Icon className="w-4 h-4" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold truncate">{tab.label}</span>
-                                        {tab.badge && (
-                                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                                        )}
-                                        {tab.count !== undefined && !isActive && (
-                                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 font-bold">
-                                                {tab.count}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className={`text-[11px] truncate mt-0.5 ${isActive ? "text-slate-400" : "text-slate-400"}`}>
-                                        {tab.subtitle}
-                                    </p>
-                                </div>
+                                <LogOut size={13} /> Disconnect
                             </button>
-                        );
-                    })}
+                        ) : (
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => {
+                                    setActiveTab("connect");
+                                    handleConnect();
+                                }}
+                                disabled={status === "connecting"}
+                            >
+                                <QrCode size={13} /> {status === "connecting" ? "Generating..." : "Connect WhatsApp"}
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* ══════════════════════════════════════════════════════════
-                    TAB 1: DEVICE LINK & QR PAIRING
+                    TAB 1: DEVICE LINK & QR SCANNER
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "connect" && (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* Left Column: Live Gateway Pairing Console */}
-                        <div className="lg:col-span-7 space-y-6">
-                            <div className="bg-white rounded-3xl border border-slate-200/90 p-6 md:p-7 shadow-xs space-y-6">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                                    <div>
-                                        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                                            <Smartphone className="w-5 h-5 text-emerald-600" />
-                                            <span>WhatsApp Merchant Gateway</span>
-                                        </h2>
-                                        <p className="text-xs text-slate-500 mt-0.5">
-                                            Self-hosted Baileys socket. Runs on your server with zero third-party dependency.
-                                        </p>
+                    <div style={{ padding: 18, flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                        {/* Left Card: QR Viewport / Connection Status */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 18, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 14 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-light)", paddingBottom: 10 }}>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                        <Smartphone size={16} color="var(--accent)" /> WhatsApp Gateway Connection
                                     </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={handleConnect}
-                                            disabled={status === "connecting"}
-                                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition cursor-pointer"
-                                        >
-                                            <RefreshCw className={`w-3.5 h-3.5 ${status === "connecting" ? "animate-spin" : ""}`} />
-                                            <span>{status === "connected" ? "Refresh Sync" : "Generate Fresh QR"}</span>
-                                        </button>
+                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                        Link your phone once to enable automated zero-cost WhatsApp messaging.
                                     </div>
                                 </div>
 
-                                {/* QR Viewport / Active Session Status */}
-                                <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 p-8 flex flex-col items-center justify-center text-center min-h-[360px] relative overflow-hidden">
-                                    {status === "connected" ? (
-                                        <div className="space-y-4 max-w-md animate-fade-in">
-                                            <div className="w-20 h-20 rounded-3xl bg-emerald-100 border border-emerald-200 text-emerald-600 mx-auto flex items-center justify-center shadow-md shadow-emerald-500/10">
-                                                <CheckCircle2 className="w-10 h-10" />
-                                            </div>
-                                            <div>
-                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                                    Direct Transmission Active
-                                                </span>
-                                                <h3 className="text-xl font-extrabold text-slate-900 mt-2 font-mono">
-                                                    +{phone || "Active"}
-                                                </h3>
-                                                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                                                    Your merchant WhatsApp is connected. All invoices, bill edits, and reminders will be dispatched directly in the background.
-                                                </p>
-                                            </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={handleConnect}
+                                    disabled={status === "connecting"}
+                                >
+                                    <RefreshCw size={12} className={status === "connecting" ? "animate-spin" : ""} />
+                                    <span>{status === "connected" ? "Refresh Sync" : "Generate QR"}</span>
+                                </button>
+                            </div>
 
-                                            <div className="grid grid-cols-2 gap-3 pt-2 text-left">
-                                                <div className="p-3 bg-white rounded-xl border border-slate-200">
-                                                    <p className="text-[10px] uppercase font-bold text-slate-400">Socket Protocol</p>
-                                                    <p className="text-xs font-semibold text-slate-800 mt-0.5">Multi-Device WebSockets</p>
-                                                </div>
-                                                <div className="p-3 bg-white rounded-xl border border-slate-200">
-                                                    <p className="text-[10px] uppercase font-bold text-slate-400">Reconnection</p>
-                                                    <p className="text-xs font-semibold text-emerald-700 mt-0.5">Auto-Heals On Restart</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="pt-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleLogout}
-                                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
-                                                >
-                                                    <LogOut className="w-3.5 h-3.5" />
-                                                    <span>Disconnect Phone & Remove Session</span>
-                                                </button>
-                                            </div>
+                            {/* Viewport Box */}
+                            <div
+                                style={{
+                                    border: "2px dashed var(--border)",
+                                    borderRadius: "var(--radius-sm)",
+                                    background: "var(--bg-base)",
+                                    padding: "24px 16px",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    textAlign: "center",
+                                    minHeight: 280,
+                                }}
+                            >
+                                {status === "connected" ? (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                                        <div
+                                            style={{
+                                                width: 52,
+                                                height: 52,
+                                                borderRadius: "50%",
+                                                background: "var(--success-bg)",
+                                                color: "var(--success)",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                border: "1px solid #a7f3d0",
+                                            }}
+                                        >
+                                            <CheckCircle2 size={28} />
                                         </div>
-                                    ) : (qrCode && status === "qr_ready") ? (
-                                        <div className="space-y-5 max-w-md animate-fade-in">
-                                            {/* Crisp QR Container */}
-                                            <div className="relative inline-block p-4 bg-white rounded-3xl shadow-xl border-4 border-slate-900">
-                                                <img
-                                                    src={qrCode}
-                                                    alt="Scan WhatsApp QR"
-                                                    className="w-56 h-56 md:w-60 md:h-60 object-contain rounded-xl"
-                                                />
-                                                <div className="absolute inset-x-0 bottom-2 text-center pointer-events-none">
-                                                    <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-slate-900 text-white shadow-sm">
-                                                        Scan with WhatsApp
-                                                    </span>
-                                                </div>
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)" }}>
+                                                WhatsApp Connected &amp; Ready
                                             </div>
-
-                                            <div className="space-y-1">
-                                                <p className="text-sm font-extrabold text-slate-800 flex items-center justify-center gap-2">
-                                                    <RefreshCw className="w-4 h-4 text-emerald-600 animate-spin" />
-                                                    Point Phone Camera to Scan
-                                                </p>
-                                                <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                                                    Open WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device.
-                                                </p>
+                                            <div style={{ fontSize: 13, fontFamily: "monospace", color: "var(--text-secondary)", marginTop: 4, fontWeight: 600 }}>
+                                                +{phone || "Active"}
                                             </div>
+                                            <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4, maxWidth: 320 }}>
+                                                Direct background transmission is active. Invoices, bill edits, and reminders will send silently to customers.
+                                            </p>
                                         </div>
-                                    ) : status === "connecting" ? (
-                                        <div className="space-y-4 max-w-xs animate-fade-in">
-                                            <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center">
-                                                <RefreshCw className="w-8 h-8 animate-spin" />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-sm font-bold text-slate-800">Initializing Baileys Socket...</h3>
-                                                <p className="text-xs text-slate-500 mt-1">
-                                                    Generating high-entropy crypto keys and establishing WebSocket gateway on port 3001.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-5 max-w-sm animate-fade-in">
-                                            <div className="w-20 h-20 rounded-3xl bg-white border border-slate-200 text-slate-400 mx-auto flex items-center justify-center shadow-sm">
-                                                <QrCode className="w-10 h-10 text-slate-700" />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-base font-extrabold text-slate-900">No Active WhatsApp Session</h3>
-                                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                                    Link your phone once to enable automated zero-cost WhatsApp billing, payment reminders, and customer broadcasts.
-                                                </p>
-                                            </div>
 
+                                        <div style={{ marginTop: 4 }}>
                                             <button
                                                 type="button"
-                                                onClick={handleConnect}
-                                                className="inline-flex items-center gap-2.5 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition cursor-pointer"
+                                                className="btn btn-danger btn-sm"
+                                                onClick={handleLogout}
                                             >
-                                                <QrCode className="w-4 h-4" />
-                                                <span>Generate WhatsApp QR Code</span>
+                                                <LogOut size={13} /> Disconnect WhatsApp
                                             </button>
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
+                                ) : (qrCode && status === "qr_ready") ? (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                                        <div
+                                            style={{
+                                                background: "#fff",
+                                                padding: 10,
+                                                borderRadius: 10,
+                                                border: "2px solid var(--border)",
+                                                boxShadow: "var(--shadow-sm)",
+                                            }}
+                                        >
+                                            <img
+                                                src={qrCode}
+                                                alt="Scan WhatsApp QR"
+                                                style={{ width: 190, height: 190, display: "block" }}
+                                            />
+                                        </div>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                            <RefreshCw size={13} className="animate-spin" color="var(--accent)" />
+                                            <span>Point phone camera to scan this QR code</span>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                            WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device
+                                        </div>
+                                    </div>
+                                ) : status === "connecting" ? (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                                        <RefreshCw size={24} className="animate-spin" color="var(--accent)" />
+                                        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary)" }}>
+                                            Initializing Baileys Socket...
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                            Generating encrypted session tokens.
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                                        <div
+                                            style={{
+                                                width: 44,
+                                                height: 44,
+                                                borderRadius: "50%",
+                                                background: "var(--bg-elevated)",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                color: "var(--text-muted)",
+                                            }}
+                                        >
+                                            <QrCode size={22} />
+                                        </div>
+                                        <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
+                                            No Active WhatsApp Session
+                                        </div>
+                                        <div style={{ fontSize: 11.5, color: "var(--text-muted)", maxWidth: 300 }}>
+                                            Click below to generate a QR code and connect your merchant phone number in 10 seconds.
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary btn-sm"
+                                            onClick={handleConnect}
+                                            style={{ marginTop: 6 }}
+                                        >
+                                            <QrCode size={13} /> Generate QR Code
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
 
-                                {/* Persistent Security Note */}
-                                <div className="bg-gradient-to-r from-indigo-50/60 to-slate-50 border border-indigo-100/80 rounded-2xl p-4 flex items-start gap-3.5 text-xs text-slate-700">
-                                    <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                                        <Lock className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-slate-900">End-to-End Encrypted & Persistent Session</p>
-                                        <p className="text-[11.5px] text-slate-600 mt-0.5 leading-relaxed">
-                                            Your session keys are stored locally on your server in <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[11px]">whatsapp-service/auth_sessions</code>. Even if your computer or VPS reboots, the connection auto-reconnects seamlessly without needing another scan.
-                                        </p>
-                                    </div>
+                            <div style={{ fontSize: 11.5, color: "var(--text-muted)", background: "var(--bg-elevated)", padding: "10px 12px", borderRadius: "var(--radius-sm)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                <ShieldCheck size={16} color="var(--accent)" style={{ shrink: 0, marginTop: 1 }} />
+                                <div>
+                                    <strong style={{ color: "var(--text-primary)" }}>Persistent Session: </strong>
+                                    Your WhatsApp session is stored locally on your server. Even if the server reboots or restarts, it auto-reconnects automatically without asking you to scan again.
                                 </div>
                             </div>
                         </div>
 
-                        {/* Right Column: Direct Live Test Dispatch & Illustrated Guide */}
-                        <div className="lg:col-span-5 space-y-6">
-                            {/* Live Test Message Card */}
-                            <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-5">
-                                <div className="border-b border-slate-100 pb-3">
-                                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                        <Zap className="w-4 h-4 text-amber-500" />
-                                        <span>Send Live Test Message</span>
-                                    </h3>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Verify direct background delivery without opening WhatsApp Web.
-                                    </p>
+                        {/* Right Card: Send Test Message & Pairing Help */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                            {/* Test Send Card */}
+                            <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 18, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
+                                <div style={{ borderBottom: "1px solid var(--border-light)", paddingBottom: 10 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                        <Zap size={16} color="var(--warning)" /> Send Live Test Message
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                        Verify direct delivery to your mobile phone number.
+                                    </div>
                                 </div>
 
-                                <form onSubmit={handleSendTest} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                                            Recipient Mobile Number
-                                        </label>
-                                        <div className="relative">
-                                            <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400 font-mono">
-                                                +91
-                                            </span>
-                                            <input
-                                                type="text"
-                                                placeholder="9876543210 (10-digit number)"
-                                                value={testForm.data.phone}
-                                                onChange={(e) => testForm.setData("phone", e.target.value)}
-                                                className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 py-2.5 pl-11 pr-3 font-mono font-medium"
-                                                required
-                                            />
-                                        </div>
+                                <form onSubmit={handleSendTest} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Recipient Mobile Number</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="e.g. 9876543210 (10 digits)"
+                                            value={testForm.data.phone}
+                                            onChange={(e) => testForm.setData("phone", e.target.value)}
+                                            required
+                                        />
                                     </div>
 
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <label className="text-xs font-semibold text-slate-700">
-                                                Test Message Body
-                                            </label>
-                                            <div className="flex gap-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => testForm.setData("message", "Namaste! This is a test notification from Vama Invoice WhatsApp system. ✅")}
-                                                    className="text-[10px] text-indigo-600 hover:underline font-semibold"
-                                                >
-                                                    [Reset]
-                                                </button>
-                                            </div>
+                                    <div className="form-group">
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                            <label className="form-label">Message Content</label>
+                                            <button
+                                                type="button"
+                                                onClick={() => testForm.setData("message", "Namaste! This is a test notification from Vama Invoice WhatsApp system. ✅")}
+                                                className="btn btn-ghost btn-sm"
+                                                style={{ fontSize: 11, padding: "0 4px", color: "var(--accent)" }}
+                                            >
+                                                Reset
+                                            </button>
                                         </div>
                                         <textarea
                                             rows={3}
+                                            className="form-input"
                                             value={testForm.data.message}
                                             onChange={(e) => testForm.setData("message", e.target.value)}
-                                            className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 p-3 leading-relaxed font-sans"
                                             required
                                         />
                                     </div>
@@ -668,116 +797,94 @@ export default function WhatsAppHub({
                                     <button
                                         type="submit"
                                         disabled={testForm.processing}
-                                        className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-md shadow-slate-900/10 disabled:opacity-50 cursor-pointer"
+                                        className="btn btn-primary"
+                                        style={{ justifyContent: "center" }}
                                     >
-                                        <Send className="w-4 h-4 text-emerald-400" />
-                                        <span>{testForm.processing ? "Transmitting via Baileys..." : "Dispatch Direct Test Message"}</span>
+                                        <Send size={14} />
+                                        <span>{testForm.processing ? "Sending..." : "Send Test to Phone"}</span>
                                     </button>
                                 </form>
                             </div>
 
-                            {/* 3-Step Illustrated Mobile Guide */}
-                            <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-4">
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                                    <HelpCircle className="w-4 h-4 text-indigo-600" />
-                                    <span>How to Link Your WhatsApp in 10s:</span>
-                                </h4>
-
-                                <div className="space-y-3 pt-1">
-                                    {[
-                                        { step: "1", title: "Open WhatsApp on Phone", desc: "Open your personal or business WhatsApp app." },
-                                        { step: "2", title: "Go to Linked Devices", desc: "Tap Menu (⋮ on Android) or Settings (iPhone) ➔ Linked Devices." },
-                                        { step: "3", title: "Tap Link a Device", desc: "Scan the QR code shown on the left screen with your camera." },
-                                    ].map((s) => (
-                                        <div key={s.step} className="flex items-start gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                                            <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                                                {s.step}
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-bold text-slate-800">{s.title}</p>
-                                                <p className="text-[11px] text-slate-500 mt-0.5">{s.desc}</p>
-                                            </div>
-                                        </div>
-                                    ))}
+                            {/* Mobile Instructions Card */}
+                            <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 10 }}>
+                                <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                                    <HelpCircle size={14} color="var(--accent)" /> How to Link on Mobile:
                                 </div>
+                                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 6, lineHeight: 1.4 }}>
+                                    <li>Open <strong>WhatsApp</strong> on your mobile phone.</li>
+                                    <li>Tap Menu (3 dots) or Settings &gt; <strong>Linked Devices</strong>.</li>
+                                    <li>Tap <strong>Link a Device</strong> and authenticate.</li>
+                                    <li>Scan the QR code shown on the screen.</li>
+                                </ol>
                             </div>
                         </div>
                     </div>
                 )}
 
                 {/* ══════════════════════════════════════════════════════════
-                    TAB 2: BILLING & PAYMENT TEMPLATES + SIMULATOR
+                    TAB 2: BILLING & UPI TEMPLATES (Super Admin Only)
                    ══════════════════════════════════════════════════════════ */}
-                {activeTab === "templates" && (
-                    <form onSubmit={handleSaveTemplates} className="space-y-6">
-                        {/* Global Merchant UPI ID & Google Review Setting */}
-                        <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-4">
+                {activeTab === "templates" && isSuperAdmin && (
+                    <form onSubmit={handleSaveTemplates} style={{ padding: 18, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+                        {/* Top Card: Merchant UPI & Google Review Settings */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
                             <div>
-                                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                                    <IndianRupee className="w-5 h-5 text-emerald-600" />
-                                    <span>Merchant UPI & Google Review Settings</span>
-                                </h2>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    These credentials dynamically populate your UPI payment links and customer review triggers across all invoices.
-                                </p>
+                                <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                    <IndianRupee size={16} color="var(--success)" /> Merchant UPI &amp; Google Review Configuration
+                                </div>
+                                <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                    These links are automatically attached into invoice notifications and payment reminders for instant customer collection.
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                            <Zap className="w-3.5 h-3.5 text-amber-500" />
-                                            <span>Merchant UPI ID / VPA</span>
-                                        </label>
-                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                                            GPay • PhonePe • Paytm • BHIM
-                                        </span>
-                                    </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontWeight: 600 }}>
+                                        Merchant UPI ID (GPay / PhonePe / Paytm VPA)
+                                    </label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. yourstore@okhdfcbank or 9876543210@paytm"
+                                        className="form-input"
+                                        placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
                                         value={templatesForm.data.upi_id}
                                         onChange={(e) => templatesForm.setData("upi_id", e.target.value)}
-                                        className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 py-2.5 px-3 font-mono font-bold"
                                     />
-                                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                                        Generates a 1-tap <code className="bg-white px-1 py-0.5 rounded border text-[10px]">upi://pay</code> link where the exact invoice balance is automatically filled for customers.
-                                    </p>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                        Customers tap this link to open their UPI app with the exact invoice balance pre-filled.
+                                    </span>
                                 </div>
 
-                                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                                            <span>Google Maps Review URL</span>
-                                        </label>
-                                        <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                                            5-Star Boost
-                                        </span>
-                                    </div>
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontWeight: 600 }}>
+                                        Google Maps Review URL
+                                    </label>
                                     <input
                                         type="url"
+                                        className="form-input"
                                         placeholder="e.g. https://g.page/r/your-shop/review"
                                         value={templatesForm.data.google_review_url}
                                         onChange={(e) => templatesForm.setData("google_review_url", e.target.value)}
-                                        className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 py-2.5 px-3"
                                     />
-                                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                                        Included on paid bills so satisfied customers can rate your shop in 1-click on Google Maps.
-                                    </p>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                        Included on paid bills so happy customers can rate your business on Google in 1 click.
+                                    </span>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Interactive Template Studio with Split Mobile Simulator */}
-                        <div className="bg-white rounded-3xl border border-slate-200/90 p-6 md:p-7 shadow-xs space-y-6">
-                            {/* Template Category Selector */}
-                            <div className="flex flex-wrap border-b border-slate-200 gap-2 pb-3">
+                        {/* Interactive Template Studio Card */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 14 }}>
+                            {/* Template Category Switcher */}
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", borderBottom: "1px solid var(--border-light)", paddingBottom: 10 }}>
                                 {[
-                                    { key: "bill_created", label: "1. New Bill Created", icon: Receipt },
-                                    { key: "bill_updated", label: "2. Bill Revised / Edited", icon: FileText },
-                                    { key: "payment_reminder", label: "3. Payment Reminder (Vasooli)", icon: IndianRupee },
-                                    { key: "custom", label: "4. Festival & Broadcast", icon: Sparkles },
+                                    { key: "bill_created", label: "1. New Invoice (Unpaid / Partial)", icon: Receipt },
+                                    { key: "bill_paid", label: "2. Payment Receipt (Paid)", icon: CheckCircle2 },
+                                    { key: "bill_updated", label: "3. Revised Invoice", icon: FileText },
+                                    { key: "partial_payment", label: "4. Partial Payment Received", icon: IndianRupee },
+                                    { key: "payment_reminder", label: "5. Customer Reminder", icon: Clock },
+                                    { key: "purchase_reminder", label: "6. Purchase Due (To Pay Supplier)", icon: ShoppingBag },
+                                    { key: "custom", label: "7. Broadcast & Offers", icon: Sparkles },
                                 ].map((t) => {
                                     const Icon = t.icon;
                                     const isSel = selectedTemplateTab === t.key;
@@ -785,63 +892,61 @@ export default function WhatsAppHub({
                                         <button
                                             type="button"
                                             key={t.key}
+                                            className={`btn btn-sm ${isSel ? "btn-primary" : "btn-secondary"}`}
                                             onClick={() => setSelectedTemplateTab(t.key)}
-                                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                                                isSel
-                                                    ? "bg-slate-900 text-white shadow-sm"
-                                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                            }`}
+                                            style={{ fontSize: 12, padding: "5px 12px" }}
                                         >
-                                            <Icon className={`w-3.5 h-3.5 ${isSel ? "text-emerald-400" : "text-slate-500"}`} />
+                                            <Icon size={13} />
                                             <span>{t.label}</span>
                                         </button>
                                     );
                                 })}
                             </div>
 
-                            {/* Clickable Placeholders Tag Toolbar */}
-                            <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-4 space-y-2">
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                                        <span>Click to Insert Dynamic Tag into Message:</span>
+                            {/* Tag Insertion Toolbar */}
+                            <div style={{ background: "var(--bg-elevated)", padding: "10px 12px", borderRadius: "var(--radius-sm)", display: "flex", flexDirection: "column", gap: 6 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5 }}>
+                                    <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
+                                        Click to Insert Dynamic Tag into Message:
                                     </span>
                                     {copiedTag && (
-                                        <span className="font-bold text-emerald-600 inline-flex items-center gap-1 text-[11px] animate-pulse">
-                                            <Check className="w-3 h-3" /> Inserted {copiedTag}
+                                        <span style={{ fontWeight: 600, color: "var(--success)" }}>
+                                            ✓ Inserted {copiedTag}
                                         </span>
                                     )}
                                 </div>
-                                <div className="flex flex-wrap gap-2">
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                     {availablePlaceholders.map((p) => (
                                         <button
                                             type="button"
                                             key={p.tag}
                                             onClick={() => insertPlaceholder(p.tag)}
-                                            className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 hover:text-indigo-600 text-xs font-mono font-medium text-slate-700 transition shadow-2xs hover:shadow-xs cursor-pointer flex items-center gap-1.5"
-                                            title={`${p.desc} (e.g. ${p.preview})`}
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ fontFamily: "monospace", fontSize: 11, padding: "3px 8px" }}
+                                            title={p.desc}
                                         >
-                                            <span>{p.tag}</span>
-                                            <span className="text-[10px] text-slate-400 font-sans">({p.desc})</span>
+                                            {p.tag}
                                         </button>
                                     ))}
                                 </div>
                             </div>
 
-                            {/* Split Editor and WhatsApp Phone Simulator */}
-                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-2 items-start">
-                                {/* Left (7 cols): Full-Height Textarea Editor */}
-                                <div className="lg:col-span-7 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-800">
-                                            Message Template ({selectedTemplateTab.replace("_", " ").toUpperCase()})
+                            {/* Split Editor and Preview */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                                {/* Left: Message Textarea */}
+                                <div className="form-group">
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <label className="form-label" style={{ fontWeight: 600 }}>
+                                            Template Body ({selectedTemplateTab.replace("_", " ").toUpperCase()})
                                         </label>
-                                        <span className="text-[11px] text-slate-400 font-mono">
+                                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                                             {currentTemplateMessage.length} characters
                                         </span>
                                     </div>
                                     <textarea
-                                        rows={14}
+                                        rows={10}
+                                        className="form-input"
+                                        style={{ fontFamily: "monospace", fontSize: 12, lineHeight: 1.5 }}
                                         value={currentTemplateMessage}
                                         onChange={(e) =>
                                             templatesForm.setData("templates", {
@@ -852,83 +957,79 @@ export default function WhatsAppHub({
                                                 },
                                             })
                                         }
-                                        className="w-full text-xs font-mono rounded-2xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 p-4 leading-relaxed shadow-inner"
-                                        placeholder="Type your message template here using tags like {customer_name}, {total_amount}, {invoice_link}..."
                                     />
                                 </div>
 
-                                {/* Right (5 cols): WhatsApp Smartphone Chat Mockup */}
-                                <div className="lg:col-span-5 space-y-3">
-                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                        <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>Customer WhatsApp Simulator (Live Preview)</span>
+                                {/* Right: Clean WhatsApp Chat Bubble Preview */}
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                                        <Eye size={13} color="var(--accent)" /> Customer WhatsApp Preview
                                     </label>
-
-                                    {/* Phone Bezel */}
-                                    <div className="w-full max-w-[340px] mx-auto rounded-[38px] border-4 border-slate-800 bg-slate-900 p-2.5 shadow-2xl">
-                                        {/* Phone Notch / Speaker */}
-                                        <div className="w-28 h-4 bg-slate-800 rounded-full mx-auto mb-2" />
-
-                                        {/* WhatsApp App Screen */}
-                                        <div className="rounded-[28px] overflow-hidden bg-[#EFEAE2] flex flex-col h-[460px] border border-slate-700/50 relative shadow-inner">
-                                            {/* WhatsApp Header Bar */}
-                                            <div className="bg-[#075E54] text-white px-3 py-2 flex items-center justify-between shrink-0 shadow-sm">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-7 h-7 rounded-full bg-emerald-700 flex items-center justify-center text-xs font-bold">
-                                                        {(profile?.business_name || "V")[0]}
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-[11px] font-bold leading-tight truncate max-w-[150px]">
-                                                            {profile?.business_name || "Vama Enterprises"}
-                                                        </p>
-                                                        <p className="text-[9px] text-emerald-200 leading-tight">online</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2 text-white/80">
-                                                    <Phone className="w-3.5 h-3.5" />
-                                                </div>
+                                    <div
+                                        style={{
+                                            border: "1px solid var(--border)",
+                                            borderRadius: "var(--radius)",
+                                            background: "#efeae2",
+                                            overflow: "hidden",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            height: 250,
+                                        }}
+                                    >
+                                        {/* WhatsApp Header */}
+                                        <div
+                                            style={{
+                                                background: "#075e54",
+                                                color: "#ffffff",
+                                                padding: "8px 12px",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                                fontSize: 12,
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    width: 24,
+                                                    height: 24,
+                                                    borderRadius: "50%",
+                                                    background: "#128c7e",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    fontSize: 11,
+                                                }}
+                                            >
+                                                {(profile?.business_name || "V")[0]}
                                             </div>
-
-                                            {/* WhatsApp Chat Body */}
-                                            <div className="flex-1 p-3 overflow-y-auto space-y-3 flex flex-col justify-end">
-                                                <div className="text-center">
-                                                    <span className="px-2 py-0.5 rounded-md bg-white/70 text-[9px] text-slate-500 font-semibold shadow-2xs">
-                                                        TODAY
-                                                    </span>
-                                                </div>
-
-                                                {/* Chat Bubble */}
-                                                <div className="self-start max-w-[88%] bg-white rounded-2xl rounded-tl-none p-3 shadow-sm text-xs text-slate-900 space-y-2 relative">
-                                                    <div className="whitespace-pre-line break-words text-[11px] leading-relaxed font-sans">
-                                                        {previewMessage}
-                                                    </div>
-
-                                                    {/* Simulated Dynamic Action Buttons inside WhatsApp */}
-                                                    <div className="pt-1 space-y-1.5 border-t border-slate-100">
-                                                        <div className="w-full py-1.5 px-2 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold text-center flex items-center justify-center gap-1 border border-emerald-200">
-                                                            <IndianRupee className="w-3 h-3" />
-                                                            <span>Instant UPI Pay: ₹3,500.00</span>
-                                                        </div>
-                                                        <div className="w-full py-1.5 px-2 bg-slate-50 text-slate-700 rounded-lg text-[10px] font-bold text-center flex items-center justify-center gap-1 border border-slate-200">
-                                                            <FileText className="w-3 h-3" />
-                                                            <span>Download Signed PDF</span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400">
-                                                        <span>12:45 PM</span>
-                                                        <CheckCheck className="w-3 h-3 text-sky-500" />
-                                                    </div>
-                                                </div>
+                                            <div>
+                                                <div>{profile?.business_name || "Vama Enterprises"}</div>
+                                                <div style={{ fontSize: 9.5, opacity: 0.8 }}>online</div>
                                             </div>
+                                        </div>
 
-                                            {/* WhatsApp Chat Input Footer */}
-                                            <div className="p-2 bg-[#F0F2F5] flex items-center gap-2 shrink-0 border-t border-slate-200/50">
-                                                <div className="flex-1 bg-white rounded-full py-1.5 px-3 text-[10px] text-slate-400">
-                                                    Message...
-                                                </div>
-                                                <div className="w-7 h-7 rounded-full bg-[#00A884] text-white flex items-center justify-center">
-                                                    <Send className="w-3.5 h-3.5" />
+                                        {/* Chat Area */}
+                                        <div style={{ flex: 1, padding: 12, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                                            <div
+                                                style={{
+                                                    background: "#ffffff",
+                                                    borderRadius: 8,
+                                                    borderTopLeftRadius: 0,
+                                                    padding: "8px 10px",
+                                                    boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
+                                                    fontSize: 11.5,
+                                                    color: "#0f172a",
+                                                    maxWidth: "88%",
+                                                    lineHeight: 1.45,
+                                                    whiteSpace: "pre-line",
+                                                    wordBreak: "break-word",
+                                                }}
+                                            >
+                                                {previewMessage}
+                                                <div style={{ textAlign: "right", fontSize: 9.5, color: "#94a3b8", marginTop: 4, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 3 }}>
+                                                    <span>12:45 PM</span>
+                                                    <span style={{ color: "#38bdf8" }}>✓✓</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -936,18 +1037,15 @@ export default function WhatsAppHub({
                                 </div>
                             </div>
 
-                            {/* Floating Save Button */}
-                            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                                <span className="text-xs text-slate-500">
-                                    Changes take effect immediately across all automated billing triggers.
-                                </span>
+                            {/* Save Action */}
+                            <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--border-light)", paddingTop: 12 }}>
                                 <button
                                     type="submit"
                                     disabled={templatesForm.processing}
-                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-lg shadow-slate-900/15 transition disabled:opacity-50 cursor-pointer"
+                                    className="btn btn-primary"
                                 >
-                                    <Check className="w-4 h-4 text-emerald-400" />
-                                    <span>{templatesForm.processing ? "Saving Templates..." : "Save All Templates & Settings"}</span>
+                                    <Check size={14} />
+                                    <span>{templatesForm.processing ? "Saving..." : "Save Templates & Settings"}</span>
                                 </button>
                             </div>
                         </div>
@@ -955,82 +1053,111 @@ export default function WhatsAppHub({
                 )}
 
                 {/* ══════════════════════════════════════════════════════════
-                    TAB 3: ANTI-BAN BROADCAST CAMPAIGNS
+                    TAB 3: BROADCAST CAMPAIGNS (ANTI-BAN ENGINE)
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "broadcasts" && (
-                    <div className="space-y-6">
-                        {/* Anti-Ban Safety Architecture Card */}
-                        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 border border-emerald-200/80 rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-xs">
-                            <div className="flex items-start gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
-                                    <ShieldCheck className="w-6 h-6" />
-                                </div>
-                                <div className="space-y-1">
-                                    <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                                        Anti-Ban Intelligent Safety Engine Active
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
-                                            Zero Ban Risk
-                                        </span>
-                                    </h3>
-                                    <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
-                                        Bulk messages are queued and sent one-by-one with a <strong>randomized delay of 18 to 45 seconds</strong> between each message. Salutations are automatically rotated (<em>Namaste</em>, <em>Hello</em>, <em>Dear</em>) so no two messages share the same hash.
-                                    </p>
+                    <div style={{ padding: 18, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+                        {/* Anti-Ban Safety Notice */}
+                        <div style={{ padding: "12px 16px", borderLeft: "4px solid var(--success)", border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg-surface)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                                <ShieldCheck size={20} color="var(--success)" style={{ shrink: 0, marginTop: 2 }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                                        Anti-Ban Protection Engine Active
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                        Broadcasts are queued with a <strong>randomized delay of 18 to 45 seconds</strong> between each recipient. Greetings are varied (<em>Namaste</em>, <em>Hello</em>, <em>Dear</em>) and capped at 150/day to prevent number blocking.
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shrink-0 min-w-[210px] text-center">
-                                <p className="text-[10px] uppercase font-bold text-slate-400">Daily Safe Limit</p>
-                                <p className="text-xl font-extrabold text-slate-900 mt-0.5 font-mono">
-                                    {usedToday} / {dailyLimit}
-                                </p>
-                                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
-                                    <div
-                                        className="bg-emerald-500 h-1.5 rounded-full"
-                                        style={{ width: `${quotaPct}%` }}
-                                    />
-                                </div>
-                                <p className="text-[11px] text-emerald-600 font-bold mt-1.5">
-                                    {quota?.remaining || dailyLimit} messages safe remaining
-                                </p>
+                            <div style={{ textAlign: "right" }}>
+                                <span style={{ fontSize: 11, color: "var(--text-muted)", display: "block" }}>Daily Quota Used:</span>
+                                <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>{usedToday} / {dailyLimit}</strong>
                             </div>
                         </div>
 
-                        {/* Broadcast Creator Studio */}
-                        <div className="bg-white rounded-3xl border border-slate-200/90 p-6 md:p-7 shadow-xs space-y-5">
-                            <div className="border-b border-slate-100 pb-3">
-                                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                                    <Send className="w-4 h-4 text-emerald-600" />
-                                    <span>Launch Customer Broadcast Campaign</span>
-                                </h2>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    Broadcast festival greetings, special clearance offers, or mass balance recovery reminders.
-                                </p>
+                        {/* Campaign Launcher Form */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 18, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 14 }}>
+                            <div style={{ borderBottom: "1px solid var(--border-light)", paddingBottom: 10 }}>
+                                <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                    <Send size={16} color="var(--accent)" /> Launch New Broadcast Campaign
+                                </div>
+                                <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                    Send announcements, promotional offers with images, or recovery reminders directly to your customers' WhatsApp.
+                                </div>
                             </div>
 
-                            <form onSubmit={handleCreateBroadcast} className="space-y-5">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                            Campaign Title
-                                        </label>
+                            <form onSubmit={handleCreateBroadcast} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ fontWeight: 600 }}>Campaign Name</label>
                                         <input
                                             type="text"
-                                            placeholder="e.g. Diwali Dhamaka Offers / Overdue Vasooli Drive"
+                                            className="form-input"
+                                            placeholder="e.g. Diwali Dhamaka Offers / New Collection Arrival"
                                             value={broadcastForm.data.title}
                                             onChange={(e) => broadcastForm.setData("title", e.target.value)}
-                                            className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 py-2.5 px-3 font-semibold"
                                             required
                                         />
                                     </div>
 
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                            Target Audience Filter
-                                        </label>
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ fontWeight: 600 }}>Recipient Audience Mode</label>
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => broadcastForm.setData("recipient_mode", "filter")}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: "7px 10px",
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    borderRadius: "var(--radius)",
+                                                    border: broadcastForm.data.recipient_mode === "filter" ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+                                                    background: broadcastForm.data.recipient_mode === "filter" ? "rgba(79, 70, 229, 0.08)" : "var(--bg-card)",
+                                                    color: broadcastForm.data.recipient_mode === "filter" ? "var(--accent)" : "var(--text-secondary)",
+                                                    cursor: "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    gap: 6,
+                                                }}
+                                            >
+                                                <Users size={14} /> Saved Customer Segment
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => broadcastForm.setData("recipient_mode", "custom")}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: "7px 10px",
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    borderRadius: "var(--radius)",
+                                                    border: broadcastForm.data.recipient_mode === "custom" ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+                                                    background: broadcastForm.data.recipient_mode === "custom" ? "rgba(79, 70, 229, 0.08)" : "var(--bg-card)",
+                                                    color: broadcastForm.data.recipient_mode === "custom" ? "var(--accent)" : "var(--text-secondary)",
+                                                    cursor: "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    gap: 6,
+                                                }}
+                                            >
+                                                <Phone size={14} /> Custom Numbers (Up to 150)
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {broadcastForm.data.recipient_mode === "filter" ? (
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ fontWeight: 600 }}>Recipient Segment Filter</label>
                                         <select
+                                            className="form-input"
                                             value={broadcastForm.data.filter_type}
                                             onChange={(e) => broadcastForm.setData("filter_type", e.target.value)}
-                                            className="w-full text-xs rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 py-2.5 px-3 bg-white font-medium"
                                         >
                                             <option value="all">
                                                 All Registered Customers ({customerStats?.total_customers || 0} Saved Parties)
@@ -1046,148 +1173,326 @@ export default function WhatsAppHub({
                                             </option>
                                         </select>
                                     </div>
+                                ) : (
+                                    <div className="form-group">
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                            <label className="form-label" style={{ fontWeight: 600, margin: 0 }}>
+                                                Enter Custom Mobile Numbers
+                                            </label>
+                                            <span style={{
+                                                fontSize: 11.5,
+                                                fontWeight: 700,
+                                                color: parsedCustomCount > 150 ? "var(--danger)" : parsedCustomCount > 0 ? "var(--success)" : "var(--text-muted)",
+                                                background: parsedCustomCount > 150 ? "rgba(239, 68, 68, 0.1)" : "var(--bg-elevated)",
+                                                padding: "2px 8px",
+                                                borderRadius: 999,
+                                            }}>
+                                                {parsedCustomCount} / 150 numbers entered
+                                            </span>
+                                        </div>
+                                        <textarea
+                                            rows={4}
+                                            className="form-input"
+                                            style={{ fontFamily: "monospace", fontSize: 12.5 }}
+                                            placeholder={`Paste or enter up to 150 mobile numbers separated by newlines, commas, or spaces:
+9876543210
+919876543210
++91 98123 45678`}
+                                            value={broadcastForm.data.custom_numbers}
+                                            onChange={(e) => broadcastForm.setData("custom_numbers", e.target.value)}
+                                            required={broadcastForm.data.recipient_mode === "custom"}
+                                        />
+                                        {parsedCustomCount > 150 ? (
+                                            <div style={{ color: "var(--danger)", fontSize: 11.5, marginTop: 4, fontWeight: 600 }}>
+                                                ⚠️ Maximum limit exceeded: You entered {parsedCustomCount} numbers. Please limit to at most 150 numbers per campaign.
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                                Enter any mobile numbers (10 digits or with 91/+91 country code). Invalid or duplicate numbers will be automatically filtered out.
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Attach Campaign File / Image / Document */}
+                                <div className="form-group">
+                                    <label className="form-label" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                                        <Paperclip size={14} color="var(--accent)" /> Attach File / Image / Document (Downloadable in Exact Format)
+                                    </label>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                                            onChange={handleImageChange}
+                                            style={{ display: "none" }}
+                                            id="broadcast-image-input"
+                                        />
+                                        <label
+                                            htmlFor="broadcast-image-input"
+                                            className="btn btn-secondary"
+                                            style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+                                        >
+                                            <Upload size={14} />
+                                            <span>{imagePreview ? "Change File" : "Choose File to Attach (Images, PDF, Documents up to 15MB)"}</span>
+                                        </label>
+
+                                        {imagePreview && (
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-elevated)", padding: "4px 10px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                                                {broadcastForm.data.image?.type?.startsWith("image/") ? (
+                                                    <img
+                                                        src={imagePreview}
+                                                        alt="Preview"
+                                                        style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }}
+                                                    />
+                                                ) : (
+                                                    <FileText size={28} color="var(--accent)" />
+                                                )}
+                                                <div style={{ display: "flex", flexDirection: "column" }}>
+                                                    <span style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
+                                                        {broadcastForm.data.image?.name || "file"}
+                                                    </span>
+                                                    <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>
+                                                        {(broadcastForm.data.image?.size ? (broadcastForm.data.image.size / 1024).toFixed(0) : 0)} KB • Exact downloadable file
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleRemoveImage}
+                                                    style={{ border: "none", background: "transparent", color: "var(--danger)", cursor: "pointer", padding: 2, marginLeft: 6 }}
+                                                    title="Remove File"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                        Sent as an exact downloadable file share in WhatsApp chats so recipients can download the original file in its exact same format.
+                                    </span>
                                 </div>
 
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                                        Broadcast Message Body
-                                    </label>
+                                {/* Enlarge Broadcast Message Body */}
+                                <div className="form-group">
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                        <label className="form-label" style={{ fontWeight: 600, margin: 0 }}>
+                                            Broadcast Message Body
+                                        </label>
+                                        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                            Supports WhatsApp formatting: *bold*, _italic_, ~strikethrough~
+                                        </span>
+                                    </div>
                                     <textarea
-                                        rows={4}
+                                        rows={8}
+                                        className="form-input"
+                                        style={{ fontSize: 13, minHeight: 180, lineHeight: 1.5, fontFamily: "inherit" }}
                                         value={broadcastForm.data.message_template}
                                         onChange={(e) => broadcastForm.setData("message_template", e.target.value)}
-                                        className="w-full text-xs font-mono rounded-2xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 p-3.5 leading-relaxed"
-                                        placeholder="Namaste {customer_name}! Vishesh Diwali offer from {shop_name}..."
+                                        placeholder="Type your broadcast announcement or festival offer here..."
                                         required
                                     />
-                                    <p className="text-[11px] text-slate-400 mt-1">
-                                        Supported tags: <code className="text-slate-600 font-mono">{'{customer_name}'}</code>, <code className="text-slate-600 font-mono">{'{shop_name}'}</code>, <code className="text-slate-600 font-mono">{'{balance_due}'}</code>, <code className="text-slate-600 font-mono">{'{greeting}'}</code>.
-                                    </p>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                                        <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Insert Tags:</span>
+                                        {[
+                                            { tag: "{customer_name}", label: "Customer Name" },
+                                            { tag: "{shop_name}", label: "Shop Name" },
+                                            { tag: "{greeting}", label: "Random Greeting" },
+                                            { tag: "{balance_due}", label: "Pending Balance" },
+                                        ].map((t) => (
+                                            <button
+                                                key={t.tag}
+                                                type="button"
+                                                onClick={() => {
+                                                    const cur = broadcastForm.data.message_template || "";
+                                                    broadcastForm.setData("message_template", cur + " " + t.tag + " ");
+                                                }}
+                                                style={{
+                                                    fontSize: 11,
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid var(--border)",
+                                                    background: "var(--bg-elevated)",
+                                                    color: "var(--text-primary)",
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                <code>{t.tag}</code> ({t.label})
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
-                                <div className="flex justify-end pt-1">
+                                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10 }}>
                                     <button
                                         type="submit"
-                                        disabled={broadcastForm.processing}
-                                        className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition shadow-md disabled:opacity-50 cursor-pointer"
+                                        disabled={broadcastForm.processing || (broadcastForm.data.recipient_mode === "custom" && (parsedCustomCount === 0 || parsedCustomCount > 150))}
+                                        className="btn btn-primary"
+                                        style={{ padding: "8px 18px", fontSize: 13 }}
                                     >
-                                        <Play className="w-4 h-4 text-emerald-400" />
-                                        <span>{broadcastForm.processing ? "Queueing Safe Campaign..." : "Queue Broadcast in Background"}</span>
+                                        <Play size={14} />
+                                        <span>{broadcastForm.processing ? "Launching Campaign..." : "Launch Broadcast Campaign"}</span>
                                     </button>
                                 </div>
                             </form>
                         </div>
 
-                        {/* Campaign History Table */}
-                        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
-                            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-                                <div>
-                                    <h3 className="font-bold text-slate-900 text-sm">
-                                        Broadcast Campaign History
-                                    </h3>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Monitor queued delivery progress, pause active jobs, or review completion rates.
-                                    </p>
+                        {/* Broadcast Campaign History Table */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg-surface)", overflow: "hidden" }}>
+                            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                                    Broadcast Campaign History
                                 </div>
-                                <span className="text-xs text-slate-500 font-mono font-bold bg-slate-100 px-2.5 py-1 rounded-lg">
-                                    {broadcasts.length} Campaigns
-                                </span>
+                                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{broadcastList.length} Campaigns</span>
                             </div>
 
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs">
-                                    <thead className="bg-slate-50 border-b border-slate-200/80 text-slate-500 font-bold uppercase text-[10.5px] tracking-wider">
+                            <div className="table-wrap">
+                                <table className="data-table">
+                                    <thead>
                                         <tr>
-                                            <th className="py-3 px-5">Campaign Title</th>
-                                            <th className="py-3 px-5">Audience Segment</th>
-                                            <th className="py-3 px-5">Status</th>
-                                            <th className="py-3 px-5">Progress</th>
-                                            <th className="py-3 px-5">Launch Date</th>
-                                            <th className="py-3 px-5 text-right">Actions</th>
+                                            <th>Campaign</th>
+                                            <th>Target Audience</th>
+                                            <th>Status</th>
+                                            <th>Progress</th>
+                                            <th>Date</th>
+                                            <th style={{ textAlign: "right" }}>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {broadcasts.length === 0 ? (
+                                    <tbody>
+                                        {broadcastList.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                                                    No broadcast campaigns launched yet. Create your first campaign above!
+                                                <td colSpan={6} style={{ textAlign: "center", padding: 36, color: "var(--text-muted)" }}>
+                                                    No broadcast campaigns launched yet. Create your first campaign above.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            broadcasts.map((b) => {
+                                            broadcastList.map((b) => {
                                                 const pct = b.total_recipients > 0
                                                     ? Math.round(((b.sent_count + b.failed_count) / b.total_recipients) * 100)
                                                     : 0;
+                                                const isDoc = b.image_url && !b.image_url.match(/\.(jpeg|jpg|png|webp|gif)$/i);
                                                 return (
-                                                    <tr key={b.id} className="hover:bg-slate-50/60 transition">
-                                                        <td className="py-3.5 px-5 font-bold text-slate-900">
-                                                            {b.title}
+                                                    <tr key={b.id}>
+                                                        <td>
+                                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                                {b.image_url && !isDoc ? (
+                                                                    <img
+                                                                        src={b.image_url}
+                                                                        alt=""
+                                                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                                        style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4, border: "1px solid var(--border)" }}
+                                                                    />
+                                                                ) : b.image_url && isDoc ? (
+                                                                    <div style={{ width: 28, height: 28, borderRadius: 4, background: "rgba(99, 102, 241, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)" }}>
+                                                                        <Paperclip size={14} />
+                                                                    </div>
+                                                                ) : (
+                                                                    <div style={{ width: 28, height: 28, borderRadius: 4, background: "var(--bg-elevated)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+                                                                        <MessageSquare size={13} />
+                                                                    </div>
+                                                                )}
+                                                                <div>
+                                                                    <strong style={{ color: "var(--text-primary)", display: "block", fontSize: 12.5 }}>{b.title}</strong>
+                                                                    {b.image_url && (
+                                                                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                                                                            <a
+                                                                                href={b.image_url}
+                                                                                download={b.file_name || "attachment"}
+                                                                                target="_blank"
+                                                                                rel="noreferrer"
+                                                                                style={{
+                                                                                    fontSize: 11,
+                                                                                    color: "var(--accent)",
+                                                                                    fontWeight: 600,
+                                                                                    textDecoration: "none",
+                                                                                    display: "inline-flex",
+                                                                                    alignItems: "center",
+                                                                                    gap: 3,
+                                                                                }}
+                                                                                title="Download exact original file"
+                                                                            >
+                                                                                <Download size={11} /> {b.file_name || "Download Attached File"}
+                                                                            </a>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </td>
-                                                        <td className="py-3.5 px-5 text-slate-600 capitalize">
-                                                            {b.filter_type.replace("_", " ")}
+                                                        <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                                                            {b.recipient_mode === "custom" || b.custom_numbers ? (
+                                                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                                                    <Phone size={12} color="var(--accent)" /> Custom List ({b.total_recipients || "Up to 150"})
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ textTransform: "capitalize", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                                                    <Users size={12} color="var(--info)" /> {b.filter_type ? b.filter_type.replace("_", " ") : "All Customers"}
+                                                                </span>
+                                                            )}
                                                         </td>
-                                                        <td className="py-3.5 px-5">
+                                                        <td>
                                                             {b.status === "completed" ? (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-                                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                                                <span style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                                                                     Completed
                                                                 </span>
                                                             ) : b.status === "processing" ? (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                                                                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
-                                                                    Sending Throttled...
+                                                                <span style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid #bae6fd", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                                                    <RefreshCw size={10} className="spin" /> Sending ({pct}%)
                                                                 </span>
                                                             ) : b.status === "paused" ? (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                                                                    <Pause className="w-3.5 h-3.5 text-amber-600" />
+                                                                <span style={{ background: "var(--warning-bg)", color: "var(--warning)", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                                                                     Paused
                                                                 </span>
                                                             ) : (
-                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 capitalize">
+                                                                <span style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: "capitalize" }}>
                                                                     {b.status}
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="py-3.5 px-5 min-w-[150px]">
-                                                            <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1 font-mono">
+                                                        <td style={{ minWidth: 140 }}>
+                                                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
                                                                 <span>{b.sent_count} / {b.total_recipients}</span>
                                                                 <span>{pct}%</span>
                                                             </div>
-                                                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                                                <div
-                                                                    className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
-                                                                    style={{ width: `${pct}%` }}
-                                                                />
+                                                            <div style={{ width: "100%", background: "var(--border-light)", borderRadius: 99, height: 5, overflow: "hidden" }}>
+                                                                <div style={{ width: `${pct}%`, background: "var(--success)", height: "100%" }} />
                                                             </div>
                                                         </td>
-                                                        <td className="py-3.5 px-5 text-slate-500 text-xs">
-                                                            {new Date(b.created_at).toLocaleDateString("en-IN", {
-                                                                day: "2-digit",
-                                                                month: "short",
-                                                                year: "numeric"
-                                                            })}
+                                                        <td style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                                                            {new Date(b.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                                                         </td>
-                                                        <td className="py-3.5 px-5 text-right space-x-1">
-                                                            {b.status === "processing" && (
-                                                                <>
+                                                        <td style={{ textAlign: "right" }}>
+                                                            <div style={{ display: "inline-flex", gap: 4 }}>
+                                                                {b.status === "processing" && (
                                                                     <button
                                                                         type="button"
+                                                                        className="btn btn-secondary btn-sm"
                                                                         onClick={() => handlePauseBroadcast(b.id)}
-                                                                        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
                                                                         title="Pause Campaign"
                                                                     >
-                                                                        <Pause className="w-4 h-4" />
+                                                                        <Pause size={12} />
                                                                     </button>
+                                                                )}
+                                                                {(b.status === "paused" || b.status === "scheduled") && (
                                                                     <button
                                                                         type="button"
+                                                                        className="btn btn-secondary btn-sm"
+                                                                        onClick={() => handleResumeBroadcast(b.id)}
+                                                                        title="Resume / Send Now"
+                                                                        style={{ color: "var(--success)", borderColor: "var(--success)" }}
+                                                                    >
+                                                                        <Play size={12} /> Send Now
+                                                                    </button>
+                                                                )}
+                                                                {b.status !== "completed" && b.status !== "cancelled" && (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-danger btn-sm"
                                                                         onClick={() => handleCancelBroadcast(b.id)}
-                                                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                                                                         title="Cancel Campaign"
                                                                     >
-                                                                        <XCircle className="w-4 h-4" />
+                                                                        <XCircle size={12} />
                                                                     </button>
-                                                                </>
-                                                            )}
+                                                                )}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -1204,128 +1509,128 @@ export default function WhatsAppHub({
                     TAB 4: TRANSMISSION AUDIT LOGS
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "logs" && (
-                    <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden space-y-4">
-                        <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
-                                <h3 className="font-bold text-slate-900 text-base">
-                                    WhatsApp Transmission Logs
-                                </h3>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    Complete audit trail of background automated transmissions and fallback links.
-                                </p>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+                        {/* Search and Filter Sub-toolbar (matching Invoices/Index.jsx search-input-wrap) */}
+                        <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "var(--bg-surface)" }}>
+                            <div className="search-input-wrap" style={{ width: "100%", maxWidth: 360 }}>
+                                <Search size={15} />
+                                <input
+                                    className="form-input search-input"
+                                    placeholder="Search by customer, phone or message..."
+                                    value={logSearch}
+                                    onChange={(e) => setLogSearch(e.target.value)}
+                                />
+                                {logSearch && (
+                                    <button className="btn-icon" onClick={() => setLogSearch("")} style={{ border: "none", background: "none", cursor: "pointer" }}>
+                                        <X size={14} />
+                                    </button>
+                                )}
                             </div>
 
-                            {/* Search and Filter Ribbon */}
-                            <div className="flex flex-wrap items-center gap-2.5">
-                                <div className="relative">
-                                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                                    <input
-                                        type="text"
-                                        placeholder="Search customer, phone, text..."
-                                        value={logSearch}
-                                        onChange={(e) => setLogSearch(e.target.value)}
-                                        className="text-xs pl-8 pr-3 py-1.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 w-52 md:w-64"
-                                    />
-                                </div>
-
-                                <div className="flex rounded-xl bg-slate-100 p-1 text-xs">
-                                    {["all", "sent", "fallback_link", "failed"].map((f) => (
-                                        <button
-                                            key={f}
-                                            onClick={() => setLogStatusFilter(f)}
-                                            className={`px-2.5 py-1 rounded-lg font-bold capitalize transition cursor-pointer ${
-                                                logStatusFilter === f
-                                                    ? "bg-white text-slate-900 shadow-2xs"
-                                                    : "text-slate-500 hover:text-slate-900"
-                                            }`}
-                                        >
-                                            {f === "fallback_link" ? "Fallback" : f}
-                                        </button>
-                                    ))}
-                                </div>
+                            {/* Status Filter Chips */}
+                            <div style={{ display: "flex", gap: 4, background: "var(--bg-elevated)", padding: 3, borderRadius: 8 }}>
+                                {[
+                                    { id: "all", label: "All Logs" },
+                                    { id: "sent", label: "Delivered" },
+                                    { id: "fallback_link", label: "Fallback Link" },
+                                    { id: "failed", label: "Failed" },
+                                ].map((st) => (
+                                    <button
+                                        key={st.id}
+                                        type="button"
+                                        onClick={() => setLogStatusFilter(st.id)}
+                                        style={{
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                            padding: "4px 10px",
+                                            borderRadius: 6,
+                                            border: "none",
+                                            background: logStatusFilter === st.id ? "var(--bg-surface)" : "transparent",
+                                            color: logStatusFilter === st.id ? "var(--text-primary)" : "var(--text-muted)",
+                                            boxShadow: logStatusFilter === st.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        {st.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs">
-                                <thead className="bg-slate-50 border-b border-slate-200/80 text-slate-500 font-bold uppercase text-[10.5px] tracking-wider">
+                        {/* Full-width Data Table inside page-full-card table-wrap */}
+                        <div className="table-wrap" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+                            <table className="data-table">
+                                <thead>
                                     <tr>
-                                        <th className="py-3 px-5">Recipient</th>
-                                        <th className="py-3 px-5">Trigger Action</th>
-                                        <th className="py-3 px-5">Status</th>
-                                        <th className="py-3 px-5">Message Snippet</th>
-                                        <th className="py-3 px-5">Timestamp</th>
-                                        <th className="py-3 px-5 text-right">Action</th>
+                                        <th style={{ width: 50 }}>#</th>
+                                        <th>Recipient</th>
+                                        <th>Trigger Action</th>
+                                        <th>Status</th>
+                                        <th>Message Snippet</th>
+                                        <th>Timestamp</th>
+                                        <th style={{ textAlign: "right" }}>Quick Action</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody>
                                     {filteredLogs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                                                No message logs match your filter criteria.
+                                            <td colSpan={7} style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}>
+                                                No message logs match your search.
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredLogs.map((l) => (
-                                            <tr key={l.id} className="hover:bg-slate-50/60 transition">
-                                                <td className="py-3.5 px-5">
-                                                    <div className="flex items-center gap-2.5">
-                                                        <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0">
-                                                            {(l.recipient_name || "C")[0]}
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-bold text-slate-900">{l.recipient_name || "Customer"}</p>
-                                                            <p className="text-[11px] text-slate-500 font-mono">+{l.recipient_phone}</p>
-                                                        </div>
-                                                    </div>
+                                        filteredLogs.map((l, idx) => (
+                                            <tr key={l.id}>
+                                                <td style={{ color: "var(--text-muted)", fontSize: 11.5 }}>{idx + 1}</td>
+                                                <td>
+                                                    <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{l.recipient_name || "Customer"}</div>
+                                                    <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>{formatLogPhone(l.recipient_phone)}</div>
                                                 </td>
-                                                <td className="py-3.5 px-5">
-                                                    <span className="inline-block px-2.5 py-0.5 rounded-lg text-[10.5px] font-bold bg-slate-100 text-slate-700 uppercase font-mono">
+                                                <td>
+                                                    <code style={{ fontSize: 11, background: "var(--bg-elevated)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>
                                                         {l.trigger_type.replace("_", " ")}
-                                                    </span>
+                                                    </code>
                                                 </td>
-                                                <td className="py-3.5 px-5">
+                                                <td>
                                                     {l.status === "sent" ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-                                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                                            Direct Delivered
+                                                        <span style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                                                            Delivered
                                                         </span>
                                                     ) : l.status === "fallback_link" ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                                                            <ExternalLink className="w-3.5 h-3.5 text-amber-600" />
-                                                            Fallback Link
+                                                        <span style={{ background: "var(--warning-bg)", color: "var(--warning)", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                                                            1-Click Link
                                                         </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
-                                                            <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                                        <span style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid #fecdd3", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                                                             Failed
                                                         </span>
                                                     )}
                                                 </td>
-                                                <td className="py-3.5 px-5 text-slate-600 max-w-xs truncate text-xs font-sans">
+                                                <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11.5, color: "var(--text-secondary)" }}>
                                                     {l.message}
                                                 </td>
-                                                <td className="py-3.5 px-5 text-slate-500 text-xs whitespace-nowrap">
+                                                <td style={{ fontSize: 11.5, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                                                     {new Date(l.created_at).toLocaleString("en-IN", {
-                                                        day: "2-digit",
+                                                        day: "numeric",
                                                         month: "short",
                                                         hour: "2-digit",
-                                                        minute: "2-digit"
+                                                        minute: "2-digit",
                                                     })}
                                                 </td>
-                                                <td className="py-3.5 px-5 text-right">
+                                                <td style={{ textAlign: "right" }}>
                                                     {l.wa_me_url ? (
                                                         <a
                                                             href={l.wa_me_url}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-[11px] font-semibold transition cursor-pointer"
+                                                            className="btn btn-secondary btn-sm"
+                                                            style={{ fontSize: 11 }}
                                                         >
                                                             <span>wa.me</span>
-                                                            <ArrowUpRight className="w-3 h-3" />
+                                                            <ExternalLink size={11} />
                                                         </a>
                                                     ) : (
-                                                        <span className="text-slate-300 text-xs">-</span>
+                                                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>-</span>
                                                     )}
                                                 </td>
                                             </tr>

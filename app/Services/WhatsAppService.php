@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BusinessProfile;
 use App\Models\Invoice;
+use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Models\WhatsappMessageLog;
 use App\Models\WhatsappTemplate;
@@ -220,8 +221,10 @@ class WhatsAppService
         ?int $merchantId = null,
         string $triggerType = 'direct',
         ?int $invoiceId = null,
-        ?string $recipientName = null
+        ?string $recipientName = null,
+        ?int $purchaseOrderId = null
     ): array {
+        $phone = $this->formatPhoneNumber($phone);
         $sessionId = $this->getSessionId($merchantId);
         $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
         $waMeUrl = $this->generateWaMeFallbackUrl($phone, $message);
@@ -244,6 +247,7 @@ class WhatsAppService
                         'user_id' => $ownerId,
                         'trigger_type' => $triggerType,
                         'invoice_id' => $invoiceId,
+                        'purchase_order_id' => $purchaseOrderId,
                         'recipient_name' => $recipientName,
                         'recipient_phone' => $phone,
                         'message' => $message,
@@ -274,6 +278,7 @@ class WhatsAppService
             'user_id' => $ownerId,
             'trigger_type' => $triggerType,
             'invoice_id' => $invoiceId,
+            'purchase_order_id' => $purchaseOrderId,
             'recipient_name' => $recipientName,
             'recipient_phone' => $phone,
             'message' => $message,
@@ -304,8 +309,10 @@ class WhatsAppService
         ?int $merchantId = null,
         string $triggerType = 'direct',
         ?int $invoiceId = null,
-        ?string $recipientName = null
+        ?string $recipientName = null,
+        ?int $purchaseOrderId = null
     ): array {
+        $phone = $this->formatPhoneNumber($phone);
         $sessionId = $this->getSessionId($merchantId);
         $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
         $waMeUrl = $this->generateWaMeFallbackUrl($phone, $caption);
@@ -313,11 +320,33 @@ class WhatsAppService
         $status = $this->getSessionStatus($merchantId);
         if ($status['success'] && ($status['status'] ?? '') === 'connected') {
             try {
+                $lower = strtolower($fileName);
+                $mime = 'application/octet-stream';
+                if (str_ends_with($lower, '.pdf')) {
+                    $mime = 'application/pdf';
+                } elseif (str_ends_with($lower, '.png')) {
+                    $mime = 'image/png';
+                } elseif (str_ends_with($lower, '.jpg') || str_ends_with($lower, '.jpeg')) {
+                    $mime = 'image/jpeg';
+                } elseif (str_ends_with($lower, '.webp')) {
+                    $mime = 'image/webp';
+                } elseif (str_ends_with($lower, '.gif')) {
+                    $mime = 'image/gif';
+                } elseif (str_ends_with($lower, '.docx')) {
+                    $mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                } elseif (str_ends_with($lower, '.doc')) {
+                    $mime = 'application/msword';
+                } elseif (str_ends_with($lower, '.xlsx')) {
+                    $mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                } elseif (str_ends_with($lower, '.xls')) {
+                    $mime = 'application/vnd.ms-excel';
+                }
+
                 $payload = [
                     'phone' => $phone,
                     'fileName' => $fileName,
                     'caption' => $caption,
-                    'mimetype' => str_ends_with(strtolower($fileName), '.pdf') ? 'application/pdf' : 'application/octet-stream',
+                    'mimetype' => $mime,
                 ];
 
                 if (str_starts_with($fileUrlOrBase64, 'http://') || str_starts_with($fileUrlOrBase64, 'https://')) {
@@ -335,6 +364,7 @@ class WhatsAppService
                         'user_id' => $ownerId,
                         'trigger_type' => $triggerType,
                         'invoice_id' => $invoiceId,
+                        'purchase_order_id' => $purchaseOrderId,
                         'recipient_name' => $recipientName,
                         'recipient_phone' => $phone,
                         'message' => $caption . " [Attached: {$fileName}]",
@@ -357,7 +387,7 @@ class WhatsAppService
             }
         }
 
-        return $this->sendText($phone, $caption, $merchantId, $triggerType, $invoiceId, $recipientName);
+        return $this->sendText($phone, $caption, $merchantId, $triggerType, $invoiceId, $recipientName, $purchaseOrderId);
     }
 
     /**
@@ -365,23 +395,68 @@ class WhatsAppService
      */
     public function renderTemplate(string $template, array $data): string
     {
-        $greetings = ['Namaste', 'Hello', 'Dear', 'Pranam', 'Vanakkam'];
+        $greetings = ['Hello', 'Dear Customer', 'Hi', 'Greetings'];
         $randomGreeting = $greetings[array_rand($greetings)];
+
+        // 1. Build payment section dynamically
+        $hasUpi = !empty($data['upi_link']);
+        $due = (float) ($data['balance_due'] ?? 0);
+        $paymentSection = '';
+        if ($due > 0 && $hasUpi) {
+            $paymentSection = "\n\n⚡ *Quick UPI Pay:* \n" . $data['upi_link'];
+        }
+
+        // 2. Build review section dynamically (strictly only if user configured google review url)
+        $hasReview = !empty($data['google_review_link']) && filter_var($data['google_review_link'], FILTER_VALIDATE_URL);
+        $reviewSection = '';
+        if ($hasReview) {
+            $reviewSection = "\n\n⭐ *Review Us on Google:* \n" . $data['google_review_link'];
+        }
 
         $replacements = [
             '{customer_name}' => $data['customer_name'] ?? 'Customer',
             '{shop_name}' => $data['shop_name'] ?? 'Our Store',
             '{invoice_no}' => $data['invoice_no'] ?? '',
-            '{total_amount}' => isset($data['total_amount']) ? number_format((float) $data['total_amount'], 2) : '0.00',
-            '{paid_amount}' => isset($data['paid_amount']) ? number_format((float) $data['paid_amount'], 2) : '0.00',
-            '{balance_due}' => isset($data['balance_due']) ? number_format((float) $data['balance_due'], 2) : '0.00',
+            '{due_date}' => !empty($data['due_date']) ? date('d M Y', strtotime($data['due_date'])) : 'Upon Receipt',
+            '{total_amount}' => isset($data['total_amount']) ? number_format((float) str_replace(',', '', (string) $data['total_amount']), 2) : '0.00',
+            '{paid_amount}' => isset($data['paid_amount']) ? number_format((float) str_replace(',', '', (string) $data['paid_amount']), 2) : '0.00',
+            '{balance_due}' => isset($data['balance_due']) ? number_format((float) str_replace(',', '', (string) $data['balance_due']), 2) : '0.00',
+            '{recorded_amount}' => isset($data['recorded_amount']) ? number_format((float) str_replace(',', '', (string) $data['recorded_amount']), 2) : '0.00',
+            '{settled_note}' => $data['settled_note'] ?? '',
             '{invoice_link}' => $data['invoice_link'] ?? '',
-            '{upi_link}' => $data['upi_link'] ?? '',
-            '{google_review_link}' => $data['google_review_link'] ?? '',
+            '{upi_link}' => $hasUpi ? $data['upi_link'] : '',
+            '{google_review_link}' => $hasReview ? $data['google_review_link'] : '',
+            '{payment_section}' => $paymentSection,
+            '{review_section}' => $reviewSection,
             '{greeting}' => $data['greeting'] ?? $randomGreeting,
+            // Purchase Bill Specific Placeholders
+            '{user_name}' => $data['user_name'] ?? ($data['shop_name'] ?? 'Merchant'),
+            '{supplier_name}' => $data['supplier_name'] ?? 'Supplier',
+            '{bill_number}' => $data['bill_number'] ?? ($data['invoice_no'] ?? ''),
+            '{purchase_number}' => $data['purchase_number'] ?? '',
+            '{days_left_text}' => $data['days_left_text'] ?? '',
         ];
 
-        return strtr($template, $replacements);
+        $rendered = strtr($template, $replacements);
+
+        // When a bill is fully settled ($due <= 0.001 or marked as paid), remove any Due Date line
+        if ($due <= 0.001) {
+            $rendered = preg_replace('/(\r?\n)[^\r\n]*(?:Payment\s+)?Due\s+Date[^\r\n]*/i', '', $rendered);
+        }
+
+        // Clean up legacy explicit tag mentions if UPI or Google Review is not configured
+        if (!$hasUpi) {
+            // Remove standalone UPI link lines if user had a template with explicit label
+            $rendered = preg_replace('/(\r?\n)?.*(?:Quick UPI Pay|⚡ Direct UPI Pay Link|UPI).*\{?upi_link\}?.*(\r?\n)?/i', '', $rendered);
+        }
+        if (!$hasReview) {
+            // Remove standalone Review link lines if user had a template with explicit label
+            $rendered = preg_replace('/(\r?\n)?.*(?:rate us on Google|Review Us on Google|Google Review).*\{?google_review_link\}?.*(\r?\n)?/i', '', $rendered);
+        }
+
+        $rendered = preg_replace("/\n{3,}/", "\n\n", $rendered);
+
+        return trim($rendered);
     }
 
     /**
@@ -409,13 +484,91 @@ class WhatsAppService
             'customer_name' => $invoice->customer_name ?: 'Valued Customer',
             'shop_name' => $shopName,
             'invoice_no' => $invoice->invoice_number,
+            'due_date' => $invoice->due_date ? (is_string($invoice->due_date) ? $invoice->due_date : $invoice->due_date->format('Y-m-d')) : null,
             'total_amount' => $total,
             'paid_amount' => $paid,
             'balance_due' => $due,
             'invoice_link' => $publicUrl,
-            'upi_link' => $upiLink ?: $publicUrl,
-            'google_review_link' => $reviewLink ?: 'Thank you for your support!',
+            'upi_link' => $upiLink,
+            'google_review_link' => $reviewLink,
         ];
+    }
+
+    /**
+     * Generate PDF binary content for an Invoice
+     */
+    public function generateInvoicePdf(Invoice $invoice): string
+    {
+        $invoice->loadMissing(['items']);
+        $businessProfile = BusinessProfile::where('user_id', $invoice->user_id)->first();
+
+        /** @var \Barryvdh\DomPDF\PDF $pdf */
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('invoices.pdf', [
+            'invoice' => $invoice,
+            'businessProfile' => $businessProfile,
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->output();
+    }
+
+    /**
+     * Send Invoice as an official PDF document with message, UPI payment link, and Google Review link
+     */
+    public function sendInvoiceDocument(Invoice $invoice, string $triggerType = 'bill_created'): array
+    {
+        if (empty($invoice->customer_phone)) {
+            return [
+                'success' => false,
+                'status' => 'failed',
+                'error' => 'Customer phone number is missing from this invoice.',
+            ];
+        }
+
+        // Automatic smart template selection based on payment status
+        $resolvedTrigger = $triggerType;
+        if ($triggerType === 'bill_created') {
+            if ($invoice->status === 'Paid') {
+                $resolvedTrigger = 'bill_paid';
+            }
+        } elseif ($triggerType === 'bill_updated') {
+            if ($invoice->status === 'Paid') {
+                $resolvedTrigger = 'bill_paid';
+            } elseif ($invoice->status === 'Partially Paid' || ((float)($invoice->paid_amount ?? 0) > 0 && (float)$invoice->total_amount > (float)($invoice->paid_amount ?? 0))) {
+                $resolvedTrigger = 'partial_payment';
+            }
+        }
+
+        $template = $this->getTemplate($invoice->user_id, $resolvedTrigger);
+        $msgData = $this->buildInvoiceMessageData($invoice);
+        $caption = $this->renderTemplate($template->message, $msgData);
+        $fileName = "Invoice_{$invoice->invoice_number}.pdf";
+
+        try {
+            $pdfBytes = $this->generateInvoicePdf($invoice);
+            $base64Pdf = base64_encode($pdfBytes);
+
+            return $this->sendDocument(
+                phone: $invoice->customer_phone,
+                fileUrlOrBase64: $base64Pdf,
+                fileName: $fileName,
+                caption: $caption,
+                merchantId: $invoice->user_id,
+                triggerType: $resolvedTrigger,
+                invoiceId: $invoice->id,
+                recipientName: $invoice->customer_name
+            );
+        } catch (\Throwable $e) {
+            Log::warning("PDF generation or WhatsApp document sending failed for invoice #{$invoice->id}: " . $e->getMessage());
+            // Graceful fallback to text message
+            return $this->sendText(
+                phone: $invoice->customer_phone,
+                message: $caption,
+                merchantId: $invoice->user_id,
+                triggerType: $resolvedTrigger,
+                invoiceId: $invoice->id,
+                recipientName: $invoice->customer_name
+            );
+        }
     }
 
     /**
@@ -443,6 +596,235 @@ class WhatsAppService
     }
 
     /**
+     * Resolve the authentic phone number for the user/merchant.
+     * Prioritizes the user's BusinessProfile phone if set and valid (not dummy 9000000001).
+     * If dummy or empty, dynamically fetches the active connected WhatsApp phone from the sidecar session.
+     */
+    public function resolveUserPhone(int $userId): ?string
+    {
+        $profile = BusinessProfile::where('user_id', $userId)->first();
+        $profilePhone = trim($profile?->phone ?? '');
+
+        // Check if profile phone is a real non-dummy number
+        $cleanDigits = preg_replace('/\D+/', '', $profilePhone);
+        $isDummy = empty($cleanDigits)
+            || preg_match('/^900000000[0-9]$/', $cleanDigits)
+            || preg_match('/^0+$/', $cleanDigits)
+            || preg_match('/^1234567890$/', $cleanDigits);
+
+        if (!$isDummy && strlen($cleanDigits) >= 10) {
+            return $this->formatPhoneNumber($cleanDigits);
+        }
+
+        // Try getting the connected WhatsApp phone from the live sidecar session
+        try {
+            $status = $this->getSessionStatus($userId);
+            if (!empty($status['phone'])) {
+                $connectedPhone = $this->formatPhoneNumber($status['phone']);
+                // Proactively auto-sync this real phone to BusinessProfile if it was dummy or empty
+                if ($profile) {
+                    $profile->phone = substr($connectedPhone, -10);
+                    $profile->save();
+                }
+                return $connectedPhone;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Could not fetch session status to resolve phone: " . $e->getMessage());
+        }
+
+        // Fallback to profile phone if it has at least some digits
+        if (!empty($cleanDigits) && strlen($cleanDigits) >= 10) {
+            return $this->formatPhoneNumber($cleanDigits);
+        }
+
+        return null;
+    }
+
+    /**
+     * Build standard message data bundle from a PurchaseOrder model
+     */
+    public function buildPurchaseReminderData(PurchaseOrder $order, ?User $user = null, ?float $recordedAmount = null): array
+    {
+        $ownerId = $order->user_id;
+        $profile = BusinessProfile::where('user_id', $ownerId)->first();
+        $targetUser = $user ?: User::find($ownerId);
+
+        $adminName = 'Merchant';
+        if ($profile && !empty(trim($profile->business_name)) && trim($profile->business_name) !== 'Super Admin') {
+            $adminName = trim($profile->business_name);
+        } elseif ($targetUser && !empty(trim($targetUser->name)) && trim($targetUser->name) !== 'Super Admin') {
+            $adminName = trim($targetUser->name);
+        }
+
+        $total = (float) $order->total_amount;
+        $isPaidStatus = strtolower((string) $order->status) === 'paid';
+        $paid = $isPaidStatus ? $total : (float) ($order->paid_amount ?? 0);
+        $due = $isPaidStatus ? 0 : max(0, $total - $paid);
+        if ($paid >= $total) {
+            $due = 0;
+            $paid = $total;
+        }
+
+        $daysLeft = null;
+        $daysLeftText = 'Due soon';
+        if ($order->due_date) {
+            $dueDate = \Carbon\Carbon::parse($order->due_date)->startOfDay();
+            $diff = \Carbon\Carbon::today()->diffInDays($dueDate, false);
+            $daysLeft = $diff;
+            if ($diff > 1) {
+                $daysLeftText = "{$diff} days left";
+            } elseif ($diff === 1) {
+                $daysLeftText = "1 day left (Due tomorrow)";
+            } elseif ($diff === 0) {
+                $daysLeftText = "Due Today!";
+            } else {
+                $daysLeftText = abs($diff) . " days overdue";
+            }
+        }
+
+        $purchaseNumber = $order->purchase_number ?: 'PUR-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT);
+        $settledNote = $due <= 0.001 ? '(Fully Settled 🎉)' : '';
+
+        return [
+            'user_name' => $adminName,
+            'shop_name' => $adminName,
+            'supplier_name' => $order->supplier_name ?: 'Supplier',
+            'bill_number' => $order->po_number ?: $purchaseNumber,
+            'purchase_number' => $purchaseNumber,
+            'invoice_no' => $order->po_number ?: $purchaseNumber,
+            'due_date' => $order->due_date ? (\Carbon\Carbon::parse($order->due_date)->format('d M Y')) : 'N/A',
+            'days_left' => $daysLeft,
+            'days_left_text' => $daysLeftText,
+            'total_amount' => $total,
+            'paid_amount' => $paid,
+            'balance_due' => $due,
+            'recorded_amount' => $recordedAmount !== null ? $recordedAmount : $paid,
+            'settled_note' => $settledNote,
+        ];
+    }
+
+    /**
+     * Generate PDF binary content for a Purchase Order / Statement
+     */
+    public function generatePurchasePdf(PurchaseOrder $order): string
+    {
+        $order->loadMissing(['items']);
+        $businessProfile = BusinessProfile::where('user_id', $order->user_id)->first();
+        $user = User::find($order->user_id);
+
+        /** @var \Barryvdh\DomPDF\PDF $pdf */
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('purchases.pdf', [
+            'order' => $order,
+            'businessProfile' => $businessProfile,
+            'user' => $user,
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->output();
+    }
+
+    /**
+     * Send Purchase Bill Due Reminder to the User itself (attached PDF statement + WhatsApp notification)
+     */
+    public function sendPurchaseReminderDocument(PurchaseOrder $order, ?string $targetPhone = null): array
+    {
+        $ownerId = $order->user_id;
+        $user = User::find($ownerId);
+        $phone = $targetPhone ?: $this->resolveUserPhone($ownerId);
+
+        if (empty($phone)) {
+            return [
+                'success' => false,
+                'status' => 'failed',
+                'error' => "User phone number is not configured in Business Profile and no connected WhatsApp was found.",
+            ];
+        }
+
+        $template = $this->getTemplate($ownerId, 'purchase_reminder');
+        $msgData = $this->buildPurchaseReminderData($order, $user);
+        $caption = $this->renderTemplate($template->message, $msgData);
+        $fileName = "Purchase_Statement_{$msgData['bill_number']}.pdf";
+
+        try {
+            $pdfBytes = $this->generatePurchasePdf($order);
+            $base64Pdf = base64_encode($pdfBytes);
+
+            return $this->sendDocument(
+                phone: $phone,
+                fileUrlOrBase64: $base64Pdf,
+                fileName: $fileName,
+                caption: $caption,
+                merchantId: $ownerId,
+                triggerType: 'purchase_reminder',
+                invoiceId: null,
+                recipientName: $msgData['user_name'],
+                purchaseOrderId: $order->id
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Purchase PDF generation or WhatsApp sending failed for PO #{$order->id}: " . $e->getMessage());
+            return $this->sendText(
+                phone: $phone,
+                message: $caption,
+                merchantId: $ownerId,
+                triggerType: 'purchase_reminder',
+                invoiceId: null,
+                recipientName: $msgData['user_name'],
+                purchaseOrderId: $order->id
+            );
+        }
+    }
+
+    /**
+     * Send Purchase Payment Recorded Notification to the User itself (attached PDF statement + WhatsApp notification)
+     */
+    public function sendPurchasePaymentRecordedDocument(PurchaseOrder $order, float $paymentAmount, ?string $targetPhone = null): array
+    {
+        $ownerId = $order->user_id;
+        $user = User::find($ownerId);
+        $phone = $targetPhone ?: $this->resolveUserPhone($ownerId);
+
+        if (empty($phone)) {
+            return [
+                'success' => false,
+                'status' => 'failed',
+                'error' => "User phone number is not configured in Business Profile and no connected WhatsApp was found.",
+            ];
+        }
+
+        $template = $this->getTemplate($ownerId, 'purchase_payment_recorded');
+        $msgData = $this->buildPurchaseReminderData($order, $user, $paymentAmount);
+        $caption = $this->renderTemplate($template->message, $msgData);
+        $fileName = "Purchase_Payment_Voucher_{$msgData['bill_number']}.pdf";
+
+        try {
+            $pdfBytes = $this->generatePurchasePdf($order);
+            $base64Pdf = base64_encode($pdfBytes);
+
+            return $this->sendDocument(
+                phone: $phone,
+                fileUrlOrBase64: $base64Pdf,
+                fileName: $fileName,
+                caption: $caption,
+                merchantId: $ownerId,
+                triggerType: 'purchase_payment_recorded',
+                invoiceId: null,
+                recipientName: $msgData['user_name'],
+                purchaseOrderId: $order->id
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Purchase PDF generation or WhatsApp sending failed for recorded payment on PO #{$order->id}: " . $e->getMessage());
+            return $this->sendText(
+                phone: $phone,
+                message: $caption,
+                merchantId: $ownerId,
+                triggerType: 'purchase_payment_recorded',
+                invoiceId: null,
+                recipientName: $msgData['user_name'],
+                purchaseOrderId: $order->id
+            );
+        }
+    }
+
+    /**
      * Calculate remaining broadcast quota for the current merchant in the last 24h
      */
     public function getRemainingDailyBroadcastQuota(?int $merchantId = null): int
@@ -457,3 +839,5 @@ class WhatsAppService
         return max(0, $this->dailyLimit - $sentToday);
     }
 }
+
+

@@ -47,8 +47,8 @@ class ProcessWhatsappBroadcastJob implements ShouldQueue
         $profile = BusinessProfile::where('user_id', $broadcast->user_id)->first();
         $shopName = $profile?->business_name ?: ($owner?->name ?: 'Our Store');
 
-        // Step 1: Collect recipients based on filter_type
-        $recipients = $this->resolveRecipients($broadcast->filter_type, $ownerIds);
+        // Step 1: Collect recipients based on filter_type or custom numbers
+        $recipients = $this->resolveRecipients($broadcast, $ownerIds);
 
         if (empty($recipients)) {
             $broadcast->update([
@@ -133,8 +133,46 @@ class ProcessWhatsappBroadcastJob implements ShouldQueue
     /**
      * Resolve customer list based on campaign filter
      */
-    protected function resolveRecipients(string $filterType, array $ownerIds): array
+    protected function resolveRecipients(WhatsappBroadcast $broadcast, array $ownerIds): array
     {
+        if ($broadcast->recipient_mode === 'custom' || !empty($broadcast->custom_numbers)) {
+            $raw = (string) $broadcast->custom_numbers;
+            $items = preg_split('/[\r\n,;]+/', $raw);
+            $numbers = [];
+
+            $savedCustomers = Customer::whereIn('user_id', $ownerIds)
+                ->whereNotNull('phone')
+                ->where('phone', '!=', '')
+                ->get()
+                ->keyBy(function ($c) {
+                    $clean = preg_replace('/\D+/', '', $c->phone);
+                    return strlen($clean) === 10 ? '91' . $clean : $clean;
+                });
+
+            foreach ($items as $item) {
+                $trimmed = trim($item);
+                if (empty($trimmed)) continue;
+
+                $clean = preg_replace('/\D+/', '', $trimmed);
+                if (strlen($clean) === 10 && in_array(substr($clean, 0, 1), ['6', '7', '8', '9'])) {
+                    $clean = '91' . $clean;
+                }
+
+                if (strlen($clean) >= 10 && strlen($clean) <= 15) {
+                    $matchedCustomer = $savedCustomers->get($clean);
+                    $numbers[$clean] = [
+                        'id' => $matchedCustomer?->id,
+                        'name' => $matchedCustomer?->name ?: 'Valued Customer',
+                        'phone' => $clean,
+                        'balance_due' => 0,
+                    ];
+                }
+            }
+
+            return array_slice(array_values($numbers), 0, 150);
+        }
+
+        $filterType = $broadcast->filter_type;
         $customersQuery = Customer::whereIn('user_id', $ownerIds)
             ->whereNotNull('phone')
             ->where('phone', '!=', '');

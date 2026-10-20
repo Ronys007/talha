@@ -20,6 +20,7 @@ import {
     IndianRupee,
     CheckCircle2,
     AlertCircle,
+    Clock,
     X,
     ExternalLink,
     Percent,
@@ -530,6 +531,7 @@ export default function InvoicesIndex({
         const totalSalesWithoutGst = nonGstInvoices.reduce((sum, invoice) => sum + parseFloat(invoice.total_amount || 0), 0);
         const totalTax = targetList.reduce((sum, i) => sum + parseFloat(i.total_tax || 0), 0);
         const paidCount = targetList.filter((i) => i.status === "Paid").length;
+        const partialPaidCount = targetList.filter((i) => i.status === "Partially Paid").length;
         const unpaidCount = targetList.filter((i) => i.status === "Unpaid").length;
         return {
             totalCount,
@@ -537,6 +539,7 @@ export default function InvoicesIndex({
             totalSalesWithoutGst,
             totalTax,
             paidCount,
+            partialPaidCount,
             unpaidCount,
             isDateFiltered: Boolean(startDate || endDate),
         };
@@ -749,6 +752,24 @@ export default function InvoicesIndex({
                     <div className="purchase-stat-info">
                         <span className="purchase-stat-title">Received Bills</span>
                         <span className="purchase-stat-num">{metrics.paidCount}</span>
+                    </div>
+                </div>
+
+                <div 
+                    className="purchase-stat-compact" 
+                    style={{ cursor: "pointer", transition: "transform 0.15s ease, box-shadow 0.15s ease" }}
+                    onClick={() => setStatusFilter(statusFilter === "Partially Paid" ? "All" : "Partially Paid")}
+                    title="Click to filter Partially Received invoices"
+                >
+                    <div className="purchase-stat-icon-wrap" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706" }}>
+                        <Clock size={16} />
+                    </div>
+                    <div className="purchase-stat-info">
+                        <span className="purchase-stat-title">
+                            Partially Paid
+                            {statusFilter === "Partially Paid" && <span style={{ color: "#d97706", fontWeight: 700 }}> (Filtered)</span>}
+                        </span>
+                        <span className="purchase-stat-num" style={{ color: "#d97706" }}>{metrics.partialPaidCount}</span>
                     </div>
                 </div>
 
@@ -1159,6 +1180,7 @@ export default function InvoicesIndex({
             {/* Invoice Creation / Edit Modal */}
             {modalOpen && (
                 <InvoiceFormModal
+                    key={editingInvoice ? `invoice-edit-${editingInvoice.id}` : (initialAutoData ? `invoice-auto-${initialAutoData.invoice_number || 'new'}` : 'invoice-new')}
                     invoice={editingInvoice}
                     initialAutoData={initialAutoData}
                     defaultBusinessProfile={businessProfile}
@@ -1167,10 +1189,12 @@ export default function InvoicesIndex({
                     nextInvoiceNumber={nextInvoiceNumber}
                     onClose={() => {
                         setInitialAutoData(null);
+                        setEditingInvoice(null);
                         setModalOpen(false);
                     }}
                     onSuccess={(msg) => {
                         setInitialAutoData(null);
+                        setEditingInvoice(null);
                         setModalOpen(false);
                         showToast(msg);
                     }}
@@ -1500,10 +1524,14 @@ function InvoiceFormModal({
     onClose,
     onSuccess,
 }) {
+    const { auth } = usePage().props;
     const isEdit = Boolean(invoice);
 
-    // Seller State (Saved for future invoices)
-    const [sellerName, setSellerName] = useState(invoice?.seller_name || defaultBusinessProfile?.business_name || "");
+    // Seller State - strictly defaults to logged in merchant's username
+    const currentUserName = auth?.user?.name || "";
+    const [sellerName, setSellerName] = useState(
+        invoice?.seller_name || currentUserName || defaultBusinessProfile?.business_name || ""
+    );
     const [sellerAddress, setSellerAddress] = useState(invoice?.seller_address || defaultBusinessProfile?.address || "");
     const [sellerGstNumber, setSellerGstNumber] = useState(invoice?.seller_gst_number || defaultBusinessProfile?.gst_number || "");
     const [sellerPhone, setSellerPhone] = useState(invoice?.seller_phone || defaultBusinessProfile?.phone || "");
@@ -1560,8 +1588,11 @@ function InvoiceFormModal({
     const [dueDate, setDueDate] = useState(invoice?.due_date ? invoice.due_date.slice(0, 10) : "");
     const [status, setStatus] = useState(invoice?.status || "Paid");
     const [paidAmount, setPaidAmount] = useState(() => {
+        if (invoice?.status === "Paid") {
+            return invoice?.total_amount ? String(invoice.total_amount) : "";
+        }
         if (invoice?.paid_amount !== undefined && invoice?.paid_amount !== null && invoice.paid_amount !== "") {
-            return invoice.paid_amount;
+            return String(invoice.paid_amount);
         }
         return "";
     });
@@ -1919,7 +1950,9 @@ function InvoiceFormModal({
             invoice_date: invoiceDate,
             due_date: dueDate,
             status,
-            paid_amount: status === "Partially Paid" ? (parseFloat(paidAmount) || 0) : undefined,
+            paid_amount: status === "Paid" 
+                ? summary.grandTotal 
+                : (status === "Partially Paid" ? (parseFloat(paidAmount) || 0) : 0),
             tax_type: taxType,
             seller_name: sellerName,
             seller_address: sellerAddress,
@@ -2033,14 +2066,17 @@ function InvoiceFormModal({
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 10 }}>
-                                    <label className="form-label">Business / Trade Name *</label>
+                                    <label className="form-label">Seller / Username *</label>
                                     <input
                                         className="form-input"
-                                        placeholder="e.g. Vama Labs / Super Store"
+                                        placeholder="Username / Seller Name"
                                         value={sellerName}
                                         onChange={(e) => setSellerName(e.target.value)}
                                         required
                                     />
+                                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                                        Defaults to your account username: <strong>{currentUserName || "Logged in User"}</strong>
+                                    </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 10 }}>
@@ -2282,13 +2318,19 @@ function InvoiceFormModal({
                                     onChange={(e) => {
                                         const newStatus = e.target.value;
                                         setStatus(newStatus);
-                                        if (newStatus === "Partially Paid" && !paidAmount) {
-                                            setPaidAmount("");
+                                        if (newStatus === "Paid") {
+                                            setPaidAmount(summary.grandTotal ? String(summary.grandTotal) : "");
+                                        } else if (newStatus === "Unpaid") {
+                                            setPaidAmount("0");
+                                        } else if (newStatus === "Partially Paid") {
+                                            if (!paidAmount || paidAmount === "0" || parseFloat(paidAmount) >= summary.grandTotal) {
+                                                setPaidAmount(summary.grandTotal ? String(Math.round(summary.grandTotal / 2)) : "");
+                                            }
                                         }
                                     }}
                                 >
-                                    <option value="Paid">Received</option>
-                                    <option value="Unpaid">Unpaid</option>
+                                    <option value="Paid">Received (Fully Paid)</option>
+                                    <option value="Unpaid">Unpaid (Balance Due)</option>
                                     <option value="Partially Paid">Partially Received</option>
                                 </select>
                             </div>

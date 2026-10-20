@@ -279,6 +279,7 @@ export default function PaymentRemindersIndex({ bills = [], summary = {}, busine
         return bills.filter((b) => {
             // Tab filter
             if (filterTab === "unpaid" && b.is_paid) return false;
+            if (filterTab === "partial" && (b.is_paid || !b.is_partially_paid)) return false;
             if (filterTab === "overdue" && (b.is_paid || b.overdue_days <= 0)) return false;
             if (filterTab === "today" && (b.is_paid || b.overdue_days !== 0)) return false;
             if (filterTab === "paid" && !b.is_paid) return false;
@@ -571,6 +572,19 @@ ${bName}${phone}`;
                         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Pending customer payments</div>
                     </div>
 
+                    <div 
+                        className="stat-card" 
+                        style={{ borderLeft: "4px solid #f59e0b", background: filterTab === "partial" ? "#fffbeb" : undefined, cursor: "pointer" }}
+                        onClick={() => setFilterTab(filterTab === "partial" ? "unpaid" : "partial")}
+                        title="Click to view partial payments"
+                    >
+                        <div className="stat-label" style={{ color: "#b45309" }}>Partial Payments</div>
+                        <div className="stat-value" style={{ color: "#b45309" }}>{summary.partial_paid_count || 0}</div>
+                        <div style={{ fontSize: 11, color: "#b45309" }}>
+                            ₹{toMoney(summary.total_partial_due || 0)} remaining balance
+                        </div>
+                    </div>
+
                     <div className="stat-card" style={{ borderLeft: "4px solid #dc2626", background: "#fef2f2" }}>
                         <div className="stat-label" style={{ color: "#991b1b" }}>Overdue Invoices</div>
                         <div className="stat-value" style={{ color: "#991b1b" }}>₹{toMoney(summary.total_overdue)}</div>
@@ -612,6 +626,7 @@ ${bName}${phone}`;
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {[
                                 { id: "unpaid", label: "All Pending" },
+                                { id: "partial", label: `Partial Payments (${summary.partial_paid_count || 0})` },
                                 { id: "overdue", label: `Overdue (${summary.overdue_count})` },
                                 { id: "today", label: `Due Today (${summary.due_today_count})` },
                                 { id: "paid", label: "Received History" },
@@ -876,13 +891,43 @@ ${bName}${phone}`;
                                         </button>
                                     </div>
                                     <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                                        This payment is added to the paid total and deducted from the pending balance.
+                                        This payment is added to the received total and deducted from customer dues.
                                     </div>
-                                    <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6 }}>
-                                        Balance after this payment: ₹{toMoney(
-                                            Math.max(0, paymentModalBill.balance_due - (parseFloat(data.amount) || 0))
-                                        )}
-                                    </div>
+
+                                    {/* Prominent Remaining Balance Callout */}
+                                    {(() => {
+                                        const entered = parseFloat(data.amount) || 0;
+                                        const remainingAfter = Math.max(0, paymentModalBill.balance_due - entered);
+                                        const isSettlingFull = remainingAfter <= 0.001 && entered > 0;
+
+                                        return (
+                                            <div style={{
+                                                marginTop: 10,
+                                                padding: "10px 12px",
+                                                borderRadius: 8,
+                                                background: isSettlingFull ? "#ecfdf5" : "#eff6ff",
+                                                border: `1px solid ${isSettlingFull ? "#a7f3d0" : "#bfdbfe"}`,
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                gap: 4,
+                                            }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                    <span style={{ fontSize: 12, fontWeight: 700, color: isSettlingFull ? "#047857" : "#1e40af" }}>
+                                                        {isSettlingFull ? "✓ Full Settlement" : "Remaining Balance Left to Pay:"}
+                                                    </span>
+                                                    <span style={{ fontSize: 14, fontWeight: 800, color: isSettlingFull ? "#047857" : "#b91c1c" }}>
+                                                        ₹{toMoney(remainingAfter)}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: 11, color: isSettlingFull ? "#065f46" : "#1d4ed8", display: "flex", alignItems: "center", gap: 4 }}>
+                                                    <MessageCircle size={12} />
+                                                    {isSettlingFull
+                                                        ? "Automatic WhatsApp full receipt PDF will be sent to customer."
+                                                        : `Automatic WhatsApp partial payment message with remaining balance ₹${toMoney(remainingAfter)} & due date will be sent to customer.`}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
                                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>

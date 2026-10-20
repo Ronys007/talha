@@ -25,6 +25,9 @@ import {
     ChevronDown,
     ChevronRight,
     MessageSquare,
+    CheckCircle2,
+    AlertCircle,
+    ExternalLink,
 } from "lucide-react";
 import { useMode } from "@/Context/ModeContext";
 import ApplicationLogo from "@/Components/ApplicationLogo";
@@ -87,18 +90,23 @@ function Toast({ flash }) {
         const m = flash?.success || flash?.delete;
         const w = flash?.warning;
         const e = flash?.error;
+        if (flash?.wa_me_url) {
+            try {
+                window.open(flash.wa_me_url, "_blank");
+            } catch (err) {}
+        }
         if (m) {
             setMsg(m);
             setType("success");
             setVisible(true);
-            const t = setTimeout(() => setVisible(false), 4000);
+            const t = setTimeout(() => setVisible(false), flash?.wa_me_url ? 8000 : 3500);
             return () => clearTimeout(t);
         }
         if (w) {
             setMsg(w);
             setType("warning");
             setVisible(true);
-            const t = setTimeout(() => setVisible(false), 5000);
+            const t = setTimeout(() => setVisible(false), 4500);
             return () => clearTimeout(t);
         }
         if (e) {
@@ -112,30 +120,82 @@ function Toast({ flash }) {
 
     if (!visible) return null;
     const isWaPrompt = msg && (msg.includes("WhatsApp") || msg.includes("WhatsApp Hub"));
+    const Icon = type === "success" ? CheckCircle2 : AlertCircle;
+    const iconColor = type === "success" ? "#10b981" : type === "warning" ? "#f59e0b" : "#ef4444";
 
     return (
         <div className="toast-container">
-            <div className={`toast toast-${type}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span>{msg}</span>
-                {isWaPrompt && (type === 'error' || type === 'warning') && (
+            <div className={`toast toast-${type}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <Icon size={16} color={iconColor} style={{ flexShrink: 0 }} />
+                    <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{msg}</span>
+                </div>
+                {flash?.wa_me_url && (
+                    <a
+                        href={flash.wa_me_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 10px',
+                            background: '#25D366',
+                            color: '#ffffff',
+                            borderRadius: 6,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                            fontSize: 11.5,
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                        }}
+                    >
+                        <span>Open WhatsApp</span>
+                        <ExternalLink size={12} />
+                    </a>
+                )}
+                {isWaPrompt && !flash?.wa_me_url && (type === 'error' || type === 'warning') && (
                     <a
                         href="/whatsapp"
                         style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
-                            padding: '3px 10px',
+                            padding: '3px 8px',
                             background: '#4f46e5',
                             color: '#ffffff',
-                            borderRadius: 6,
-                            fontWeight: 700,
+                            borderRadius: 5,
+                            fontWeight: 600,
                             textDecoration: 'none',
-                            fontSize: 12,
+                            fontSize: 11,
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
                         }}
                     >
-                        Open WhatsApp Hub →
+                        WhatsApp Hub →
                     </a>
                 )}
+                <button
+                    type="button"
+                    onClick={() => setVisible(false)}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted, #94a3b8)',
+                        cursor: 'pointer',
+                        padding: 2,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 4,
+                        marginLeft: 4,
+                        flexShrink: 0,
+                    }}
+                    title="Dismiss"
+                >
+                    <X size={14} />
+                </button>
             </div>
         </div>
     );

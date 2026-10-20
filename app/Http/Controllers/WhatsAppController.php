@@ -163,10 +163,10 @@ class WhatsAppController extends Controller
         );
 
         if ($result['status'] === 'sent') {
-            return back()->with('success', '✓ Test message delivered directly via WhatsApp in background!');
+            return back()->with('success', '✓ Test message sent to WhatsApp');
         }
 
-        return back()->with('error', 'WhatsApp is not connected! Please scan the QR code under the "Device Link & QR Scanner" tab first.');
+        return back()->with('error', 'WhatsApp not connected. Scan QR code in WhatsApp Hub.');
     }
 
     /**
@@ -174,6 +174,10 @@ class WhatsAppController extends Controller
      */
     public function saveTemplates(Request $request, WhatsAppService $whatsAppService)
     {
+        if (!auth()->user()?->isSuperAdmin()) {
+            abort(403, 'Unauthorized. Only Super Admin can modify Billing & UPI Templates.');
+        }
+
         $ownerId = $this->getOwnerId();
 
         $request->validate([
@@ -219,22 +223,67 @@ class WhatsAppController extends Controller
         $request->validate([
             'title' => 'required|string|max:150',
             'message_template' => 'required|string',
-            'filter_type' => 'required|in:all,pending_balance,inactive_30,inactive_60',
+            'recipient_mode' => 'required|in:filter,custom',
+            'filter_type' => 'nullable|in:all,pending_balance,inactive_30,inactive_60',
+            'custom_numbers' => 'nullable|string',
+            'image' => 'nullable|file|mimes:jpeg,png,jpg,webp,gif,pdf,doc,docx,xls,xlsx,zip|max:15360',
         ]);
+
+        $recipientMode = $request->input('recipient_mode', 'filter');
+        $cleanNumbers = [];
+
+        if ($recipientMode === 'custom') {
+            $raw = (string) $request->input('custom_numbers', '');
+            $items = preg_split('/[\r\n,;]+/', $raw);
+            foreach ($items as $item) {
+                $c = preg_replace('/\D+/', '', trim($item));
+                if (strlen($c) === 10 && in_array(substr($c, 0, 1), ['6', '7', '8', '9'])) {
+                    $c = '91' . $c;
+                }
+                if (strlen($c) >= 10 && strlen($c) <= 15) {
+                    $cleanNumbers[$c] = true;
+                }
+            }
+
+            $totalClean = count($cleanNumbers);
+            if ($totalClean === 0) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'custom_numbers' => 'Please enter at least 1 valid mobile number (10 to 15 digits).',
+                ]);
+            }
+
+            if ($totalClean > 150) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'custom_numbers' => "You entered {$totalClean} numbers. A maximum of 150 recipients is allowed per broadcast campaign.",
+                ]);
+            }
+        }
+
+        $imagePath = null;
+        $originalFileName = null;
+        if ($request->hasFile('image')) {
+            $uploaded = $request->file('image');
+            $originalFileName = $uploaded->getClientOriginalName();
+            $imagePath = $uploaded->store('broadcasts', 'public');
+        }
 
         $broadcast = WhatsappBroadcast::create([
             'user_id' => $ownerId,
             'title' => $request->title,
             'message_template' => $request->message_template,
-            'filter_type' => $request->filter_type,
+            'image_path' => $imagePath,
+            'file_name' => $originalFileName,
+            'recipient_mode' => $recipientMode,
+            'custom_numbers' => $recipientMode === 'custom' ? implode("\n", array_keys($cleanNumbers)) : null,
+            'filter_type' => $request->filter_type ?? 'all',
             'status' => 'scheduled',
             'scheduled_at' => now(),
         ]);
 
-        // Dispatch background processing job with anti-ban queue delays
-        ProcessWhatsappBroadcastJob::dispatch($broadcast->id);
+        // Launch background processing runner immediately with full binary path & working directory
+        $this->spawnBroadcastRunner((int) $broadcast->id);
 
-        return back()->with('success', "Broadcast campaign '{$broadcast->title}' launched in the background with anti-ban throttling!");
+        return back()->with('success', "Broadcast campaign '{$broadcast->title}' launched in the background!");
     }
 
     /**
@@ -247,6 +296,86 @@ class WhatsAppController extends Controller
 
         $broadcast->update(['status' => 'paused']);
         return back()->with('success', "Broadcast campaign '{$broadcast->title}' paused.");
+    }
+
+    /**
+     * Resume / Run an active broadcast campaign
+     */
+    public function resumeBroadcast($id)
+    {
+        $ownerId = $this->getOwnerId();
+        $broadcast = WhatsappBroadcast::where('id', $id)->where('user_id', $ownerId)->firstOrFail();
+
+        $broadcast->update(['status' => 'processing']);
+
+        $this->spawnBroadcastRunner((int) $broadcast->id);
+
+        return back()->with('success', "Broadcast campaign '{$broadcast->title}' resumed.");
+    }
+
+    /**
+     * AJAX step runner for active broadcast progress
+     */
+    public function stepBroadcast($id)
+    {
+        $ownerId = $this->getOwnerId();
+        $broadcast = WhatsappBroadcast::where('id', $id)->where('user_id', $ownerId)->first();
+        if (!$broadcast || in_array($broadcast->status, ['completed', 'cancelled', 'paused'])) {
+            return response()->json([
+                'status' => $broadcast?->status ?? 'not_found',
+                'remaining' => 0,
+                'sent_count' => $broadcast?->sent_count ?? 0,
+                'total_recipients' => $broadcast?->total_recipients ?? 0,
+            ]);
+        }
+
+        // Run next batch of recipients
+        try {
+            \Illuminate\Support\Facades\Artisan::call('whatsapp:process-broadcast', [
+                'broadcastId' => $broadcast->id,
+                '--limit' => 2,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("stepBroadcast error on #{$broadcast->id}: " . $e->getMessage());
+        }
+
+        $broadcast->refresh();
+        $remaining = WhatsappBroadcastLog::where('broadcast_id', $broadcast->id)
+            ->where('status', 'pending')
+            ->count();
+
+        return response()->json([
+            'status' => $broadcast->status,
+            'sent_count' => $broadcast->sent_count,
+            'failed_count' => $broadcast->failed_count,
+            'total_recipients' => $broadcast->total_recipients,
+            'remaining' => $remaining,
+        ]);
+    }
+
+    /**
+     * Robust background execution of WhatsApp broadcast console command
+     */
+    private function spawnBroadcastRunner(int $broadcastId): void
+    {
+        $php = defined('PHP_BINARY') && file_exists(PHP_BINARY) ? PHP_BINARY : 'C:\\xampp\\php\\php.exe';
+        if (!file_exists($php)) {
+            $php = 'php';
+        }
+        $artisan = base_path('artisan');
+        $baseDir = base_path();
+
+        try {
+            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                $cmd = "cmd.exe /c \"cd /d " . escapeshellarg($baseDir) . " && " . escapeshellarg($php) . " " . escapeshellarg($artisan) . " whatsapp:process-broadcast " . (int) $broadcastId . " > NUL 2>&1\"";
+                @pclose(popen("start /B " . $cmd, "r"));
+            } else {
+                $cmd = escapeshellarg($php) . " " . escapeshellarg($artisan) . " whatsapp:process-broadcast " . (int) $broadcastId . " > /dev/null 2>&1 &";
+                @exec($cmd);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Could not spawn background process for broadcast #{$broadcastId}: " . $e->getMessage());
+        }
     }
 
     /**
@@ -277,29 +406,23 @@ class WhatsAppController extends Controller
             return back()->with('error', 'Customer phone number is missing from this invoice.');
         }
 
-        $template = $whatsAppService->getTemplate($invoice->user_id, 'bill_created');
-        $data = $whatsAppService->buildInvoiceMessageData($invoice);
-        $message = $whatsAppService->renderTemplate($template->message, $data);
+        $result = $whatsAppService->sendInvoiceDocument($invoice, 'bill_created');
 
-        $result = $whatsAppService->sendText(
-            phone: $invoice->customer_phone,
-            message: $message,
-            merchantId: $invoice->user_id,
-            triggerType: 'bill_created',
-            invoiceId: $invoice->id,
-            recipientName: $invoice->customer_name
-        );
-
-        if ($result['status'] === 'sent') {
-            return back()->with('success', "✓ Invoice notification delivered directly to {$invoice->customer_name} via WhatsApp!");
+        if (($result['status'] ?? '') === 'sent') {
+            return back()->with('success', "✓ Invoice sent to {$invoice->customer_name} on WhatsApp");
         }
 
-        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
+        if (!empty($result['wa_me_url'])) {
+            return back()->with('success', "WhatsApp message ready for {$invoice->customer_name}")
+                         ->with('wa_me_url', $result['wa_me_url']);
+        }
+
+        return back()->with('error', "WhatsApp is not connected. Please connect in WhatsApp Hub.");
     }
 
     /**
-     * Send Payment Reminder (Vasooli Trigger)
-     */
+      * Send Payment Reminder (Vasooli Trigger)
+      */
     public function sendPaymentReminder($id, WhatsAppService $whatsAppService)
     {
         $ownerIds = $this->getStoreUserIds();
@@ -309,57 +432,44 @@ class WhatsAppController extends Controller
             return back()->with('error', 'Customer phone number is missing from this invoice.');
         }
 
-        $template = $whatsAppService->getTemplate($invoice->user_id, 'payment_reminder');
-        $data = $whatsAppService->buildInvoiceMessageData($invoice);
-        $message = $whatsAppService->renderTemplate($template->message, $data);
+        $result = $whatsAppService->sendInvoiceDocument($invoice, 'payment_reminder');
 
-        $result = $whatsAppService->sendText(
-            phone: $invoice->customer_phone,
-            message: $message,
-            merchantId: $invoice->user_id,
-            triggerType: 'payment_reminder',
-            invoiceId: $invoice->id,
-            recipientName: $invoice->customer_name
-        );
-
-        if ($result['status'] === 'sent') {
-            return back()->with('success', "✓ Payment reminder sent directly to {$invoice->customer_name} via WhatsApp!");
+        if (($result['status'] ?? '') === 'sent') {
+            return back()->with('success', "✓ Payment reminder sent to {$invoice->customer_name} on WhatsApp");
         }
 
-        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
+        if (!empty($result['wa_me_url'])) {
+            return back()->with('success', "Payment reminder ready for {$invoice->customer_name}")
+                         ->with('wa_me_url', $result['wa_me_url']);
+        }
+
+        return back()->with('error', "WhatsApp is not connected. Please connect in WhatsApp Hub.");
     }
 
     /**
-     * Send Purchase Order / Reminder to Supplier directly via WhatsApp
+     * Send Purchase Bill Due Reminder to the User itself (payment fulfillment reminder)
      */
     public function sendPurchaseReminder($id, WhatsAppService $whatsAppService)
     {
         $ownerIds = $this->getStoreUserIds();
         $order = \App\Models\PurchaseOrder::whereIn('user_id', $ownerIds)->where('id', $id)->firstOrFail();
 
-        if (empty($order->supplier_phone)) {
-            return back()->with('error', 'Supplier phone number is missing from this purchase bill.');
+        $userPhone = $whatsAppService->resolveUserPhone($order->user_id);
+
+        if (empty($userPhone)) {
+            return back()->with('error', 'Phone number missing. Please configure Business Profile or link WhatsApp.');
         }
 
-        $bProfile = BusinessProfile::where('user_id', $order->user_id)->first();
-        $bName = $bProfile?->business_name ?? auth()->user()?->name ?? 'Merchant';
-        $due = max(0, (float)$order->total_amount - (float)($order->paid_amount ?? 0));
+        $result = $whatsAppService->sendPurchaseReminderDocument($order, $userPhone);
 
-        $message = "Namaste {$order->supplier_name}! Regarding Purchase Order #{$order->po_number} from {$bName}:\nTotal Amount: Rs. " . number_format($order->total_amount, 2) . "\nPaid: Rs. " . number_format($order->paid_amount ?? 0, 2) . "\nBalance Due: Rs. " . number_format($due, 2) . "\nThank you for your partnership!";
-
-        $result = $whatsAppService->sendText(
-            phone: $order->supplier_phone,
-            message: $message,
-            merchantId: $order->user_id,
-            triggerType: 'purchase_reminder',
-            invoiceId: null,
-            recipientName: $order->supplier_name
-        );
-
-        if ($result['status'] === 'sent') {
-            return back()->with('success', "✓ Purchase reminder delivered directly to {$order->supplier_name} via WhatsApp!");
+        if (($result['status'] ?? '') === 'sent' || ($result['mode'] ?? '') === 'automated') {
+            return back()->with('success', "✓ Purchase reminder sent to WhatsApp (+{$userPhone})");
         }
 
-        return back()->with('error', "WhatsApp is not connected! Please open WhatsApp Hub, generate the QR code, and link your phone to enable direct background sending.");
+        if (($result['status'] ?? '') === 'fallback_link' || !empty($result['wa_me_url'])) {
+            return back()->with('success', "WhatsApp reminder ready (+{$userPhone})")->with('wa_me_url', $result['wa_me_url'] ?? null);
+        }
+
+        return back()->with('error', "WhatsApp failed: " . ($result['error'] ?? 'Please check WhatsApp Hub.'));
     }
 }

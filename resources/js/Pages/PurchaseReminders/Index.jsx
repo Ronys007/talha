@@ -256,6 +256,7 @@ export default function PurchaseRemindersIndex({ bills = [], summary = {}, busin
     const [copiedId, setCopiedId] = useState(null);
     const [previewBill, setPreviewBill] = useState(null);
     const [paymentModalBill, setPaymentModalBill] = useState(null);
+    const [sendingWhatsAppId, setSendingWhatsAppId] = useState(null);
 
     const { data, setData, post, processing, reset } = useForm({
         id: "",
@@ -283,24 +284,34 @@ export default function PurchaseRemindersIndex({ bills = [], summary = {}, busin
         });
     }, [bills, filterTab, search]);
 
-    // Build WhatsApp Message for Supplier
+    // Build Reminder Message for Merchant Self-Reminder
     function buildReminderMessage(bill) {
         const bName = (business.name && business.name !== "Super Admin") ? business.name : "Admin";
-        const phone = business.phone ? ` (${business.phone})` : "";
 
-        return `Dear ${bill.supplier_name}, greetings from ${bName}!
+        let daysText = "Due soon";
+        if (bill.overdue_days > 0) {
+            daysText = `${bill.overdue_days} days overdue`;
+        } else if (bill.overdue_days === 0) {
+            daysText = "Due Today!";
+        } else {
+            daysText = `${Math.abs(bill.overdue_days)} days left`;
+        }
 
-Regarding purchase reference ${bill.purchase_number} (Supplier Invoice #${bill.bill_number}) dated ${formatDate(bill.bill_date)} for total ₹${toMoney(bill.total_amount)}:
+        return `🔔 *Purchase Payment Reminder*
 
-• Total Order Amount: ₹${toMoney(bill.total_amount)}
-• Amount Disbursed: ₹${toMoney(bill.paid_amount)}
-• Pending Payable Balance: ₹${toMoney(bill.balance_due)}
-• Payment Due Date: ${formatDate(bill.due_date)}
+Hello *${bName}*,
+This is a reminder that payment for supplier bill *#${bill.bill_number}* (${bill.supplier_name}) is due soon.
 
-Please find our purchase statement attached.
+📦 *Purchase Bill Details:*
+• Supplier / Vendor: *${bill.supplier_name}*
+• Supplier Invoice: *#${bill.bill_number}*
+• Purchase Ref: *${bill.purchase_number}*
+• Total Bill Amount: *₹${toMoney(bill.total_amount)}*
+• Amount Paid: *₹${toMoney(bill.paid_amount)}*
+• Balance Due to Supplier: *₹${toMoney(bill.balance_due)}*
+• Payment Due Date: *${formatDate(bill.due_date)}* (${daysText})
 
-Thank you,
-${bName}${phone}`;
+Please ensure this payment is fulfilled to ${bill.supplier_name} on or before the due date. The purchase payment statement is attached above.`;
     }
 
     // Direct PDF generator helper
@@ -442,8 +453,11 @@ ${bName}${phone}`;
 
     // Direct WhatsApp Sharing
     function handleSendWhatsApp(bill) {
+        if (sendingWhatsAppId) return;
+        setSendingWhatsAppId(bill.id);
         router.post(`/whatsapp/send-purchase-reminder/${bill.id}`, {}, {
             preserveScroll: true,
+            onFinish: () => setSendingWhatsAppId(null),
         });
     }
 
@@ -721,9 +735,10 @@ ${bName}${phone}`;
                                                         onClick={() => openPaymentModal(b)}
                                                     />
                                                     <ActionItem
-                                                        icon={MessageCircle}
-                                                        label="WhatsApp Supplier"
+                                                        icon={sendingWhatsAppId === b.id ? Loader2 : MessageCircle}
+                                                        label={sendingWhatsAppId === b.id ? "Sending Reminder..." : "WhatsApp Reminder (To Me)"}
                                                         onClick={() => handleSendWhatsApp(b)}
+                                                        disabled={sendingWhatsAppId === b.id}
                                                     />
                                                     <ActionItem
                                                         icon={FileText}
@@ -817,13 +832,22 @@ ${bName}${phone}`;
                                             Full
                                         </button>
                                     </div>
-                                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                                        Previous payments are included. This payment is added to the paid total and subtracted from the pending balance.
-                                    </div>
-                                    <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6 }}>
-                                        Balance after this payment: ₹{toMoney(
-                                            Math.max(0, paymentModalBill.balance_due - (parseFloat(data.amount) || 0))
-                                        )}
+                                    <div style={{ marginTop: 10, padding: "10px 12px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                            <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>Remaining Balance After Payment:</span>
+                                            <span style={{
+                                                fontSize: 14,
+                                                fontWeight: 800,
+                                                color: Math.max(0, paymentModalBill.balance_due - (parseFloat(data.amount) || 0)) <= 0 ? "#047857" : "#dc2626"
+                                            }}>
+                                                ₹{toMoney(Math.max(0, paymentModalBill.balance_due - (parseFloat(data.amount) || 0)))}
+                                                {Math.max(0, paymentModalBill.balance_due - (parseFloat(data.amount) || 0)) <= 0 ? " (Full Paid)" : " (Partial Due)"}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#4f46e5", display: "flex", alignItems: "center", gap: 5, fontWeight: 500 }}>
+                                            <MessageCircle size={13} />
+                                            <span>Automatic payment voucher &amp; statement will be sent to your WhatsApp</span>
+                                        </div>
                                     </div>
                                 </div>
 

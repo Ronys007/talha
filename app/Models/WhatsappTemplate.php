@@ -33,20 +33,36 @@ class WhatsappTemplate extends Model
     {
         return [
             'bill_created' => [
-                'title' => 'New Bill Created (नया बिल)',
-                'message' => "Namaste {customer_name} ji! 🙏\n\nAapka bill generate ho gaya hai from *{shop_name}*.\n🧾 Invoice No: *{invoice_no}*\n💰 Total Amount: *₹{total_amount}*\n💳 Paid Amount: *₹{paid_amount}*\n⏳ Balance Due: *₹{balance_due}*\n\n📄 View & Download Bill:\n{invoice_link}\n\n⚡ Quick UPI Pay:\n{upi_link}\n\n⭐ Please rate us on Google:\n{google_review_link}\n\nThank you for shopping with us! Have a great day ahead! 😊",
+                'title' => 'New Invoice (Professional)',
+                'message' => "Dear {customer_name},\n\nThank you for choosing *{shop_name}*.\nPlease find your invoice *#{invoice_no}* attached above as a PDF document.\n\n🧾 *Invoice Summary:*\n• Total Amount: *₹{total_amount}*\n• Paid Amount: *₹{paid_amount}*\n• Balance Due: *₹{balance_due}*{payment_section}{review_section}\n\nThank you for your business! Have a great day.",
+            ],
+            'bill_paid' => [
+                'title' => 'Payment Received Receipt (Paid)',
+                'message' => "Dear {customer_name},\n\nThank you for choosing *{shop_name}*.\nWe have received your full payment for invoice *#{invoice_no}*. Please find your official receipt attached above as a PDF.\n\n🧾 *Payment Receipt:*\n• Total Amount: *₹{total_amount}*\n• Paid Amount: *₹{paid_amount}*\n• Balance Due: *₹0.00* (Fully Paid){review_section}\n\nWe truly appreciate your prompt payment and support!",
             ],
             'bill_updated' => [
-                'title' => 'Bill Updated / Revised (संशोधित बिल)',
-                'message' => "Namaste {customer_name} ji! 🙏\n\nAapka bill update kar diya gaya hai by *{shop_name}*.\n🧾 Revised Invoice No: *{invoice_no}*\n💰 Updated Total: *₹{total_amount}*\n💳 Paid Amount: *₹{paid_amount}*\n⏳ Revised Balance Due: *₹{balance_due}*\n\n📄 View Updated Bill:\n{invoice_link}\n\n⚡ Quick UPI Pay:\n{upi_link}\n\nKisi bhi sahayata ke liye sampark karein. Thank you!",
+                'title' => 'Revised Invoice (Updated)',
+                'message' => "Dear {customer_name},\n\nYour invoice *#{invoice_no}* with *{shop_name}* has been updated. Please find the revised invoice attached above as a PDF.\n\n🧾 *Updated Summary:*\n• Total Amount: *₹{total_amount}*\n• Amount Paid: *₹{paid_amount}*\n• Balance Due: *₹{balance_due}*{payment_section}{review_section}\n\nPlease feel free to reach out if you have any questions.",
+            ],
+            'partial_payment' => [
+                'title' => 'Partial Payment Received & Balance Due',
+                'message' => "Dear {customer_name},\n\nWe have received your partial payment for invoice *#{invoice_no}* with *{shop_name}*. Please find your updated invoice & statement attached above as a PDF.\n\n🧾 *Payment & Balance Summary:*\n• Total Invoice Amount: *₹{total_amount}*\n• Total Amount Received: *₹{paid_amount}*\n• Remaining Balance Due: *₹{balance_due}*\n• Payment Due Date: *{due_date}*{payment_section}\n\nKindly clear the remaining balance on or before the due date. Thank you for your business!",
             ],
             'payment_reminder' => [
-                'title' => 'Payment Reminder (उधारी वसूली रिमाइंडर)',
-                'message' => "Namaste {customer_name} ji! 🙏\n\nYeh *{shop_name}* ki taraf se aapke pending bill ka gentle payment reminder hai.\n🧾 Invoice No: *{invoice_no}*\n⏳ Pending Balance Due: *₹{balance_due}*\n\nAap neeche diye gaye link se UPI ke dwara turant aasan bhugtan kar sakte hain:\n⚡ Direct UPI Pay Link:\n{upi_link}\n\n📄 View Bill Summary:\n{invoice_link}\n\nAgar aap already bhugtan kar chuke hain toh kripya is sandesh ko ignore karein. Dhanyawad!",
+                'title' => 'Payment Reminder (Due / Vasooli)',
+                'message' => "Dear {customer_name},\n\nThis is a friendly reminder regarding your pending payment for invoice *#{invoice_no}* from *{shop_name}*. The invoice document is attached above for your reference.\n\n🧾 *Outstanding Summary:*\n• Total Amount: *₹{total_amount}*\n• Amount Paid: *₹{paid_amount}*\n• Balance Due: *₹{balance_due}*\n• Payment Due Date: *{due_date}*{payment_section}\n\nKindly process the payment on or before the due date. If you have already made this payment, please disregard this notice. Thank you!",
+            ],
+            'purchase_reminder' => [
+                'title' => 'Purchase Bill Due Reminder (To Pay Supplier)',
+                'message' => "🔔 *Purchase Payment Reminder*\n\nHello *{user_name}*,\nThis is a reminder that payment for supplier bill *#{bill_number}* ({supplier_name}) is due soon.\n\n📦 *Purchase Bill Details:*\n• Supplier / Vendor: *{supplier_name}*\n• Supplier Invoice: *#{bill_number}*\n• Purchase Ref: *{purchase_number}*\n• Total Bill Amount: *₹{total_amount}*\n• Amount Paid: *₹{paid_amount}*\n• Balance Due to Supplier: *₹{balance_due}*\n• Payment Due Date: *{due_date}* ({days_left_text})\n\nPlease ensure this payment is fulfilled to {supplier_name} on or before the due date. The purchase payment statement is attached above.",
+            ],
+            'purchase_payment_recorded' => [
+                'title' => 'Purchase Payment Recorded (To Supplier)',
+                'message' => "🧾 *Supplier Payment Recorded*\n\nHello *{user_name}*,\nA payment of *₹{recorded_amount}* has been recorded for supplier bill *#{bill_number}* ({supplier_name}).\n\n📦 *Updated Supplier Balance:*\n• Supplier / Vendor: *{supplier_name}*\n• Supplier Invoice: *#{bill_number}*\n• Total Bill Amount: *₹{total_amount}*\n• Total Paid to Date: *₹{paid_amount}*\n• Remaining Balance Due: *₹{balance_due}* {settled_note}\n• Payment Due Date: *{due_date}*\n\nPlease find your updated purchase voucher & statement attached above as a PDF document.",
             ],
             'custom' => [
-                'title' => 'Festival & Customer Broadcast (फेस्टिवल व नया ऑफर)',
-                'message' => "{greeting} {customer_name} ji! 🌸\n\nHumare *{shop_name}* par vishesh offers aur naya stock uplabdh hai!\n\nVisiting card & Address: {shop_name}\nContact us for exciting discounts and best deals!\n\nThank you for being our valued customer!",
+                'title' => 'Customer Broadcast & Offers',
+                'message' => "Hello {customer_name},\n\nGreetings from *{shop_name}*!\n\nWe are delighted to share our latest collections and exclusive special offers with you.\n\nVisit us or get in touch for details and best pricing.\n\nThank you for being our valued customer!",
             ],
         ];
     }

@@ -107,6 +107,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/whatsapp/templates', [\App\Http\Controllers\WhatsAppController::class, 'saveTemplates'])->name('whatsapp.templates.save');
     Route::post('/whatsapp/broadcasts', [\App\Http\Controllers\WhatsAppController::class, 'createBroadcast'])->name('whatsapp.broadcasts.create');
     Route::post('/whatsapp/broadcasts/{id}/pause', [\App\Http\Controllers\WhatsAppController::class, 'pauseBroadcast'])->name('whatsapp.broadcasts.pause');
+    Route::post('/whatsapp/broadcasts/{id}/resume', [\App\Http\Controllers\WhatsAppController::class, 'resumeBroadcast'])->name('whatsapp.broadcasts.resume');
+    Route::post('/whatsapp/broadcasts/{id}/step', [\App\Http\Controllers\WhatsAppController::class, 'stepBroadcast'])->name('whatsapp.broadcasts.step');
     Route::post('/whatsapp/broadcasts/{id}/cancel', [\App\Http\Controllers\WhatsAppController::class, 'cancelBroadcast'])->name('whatsapp.broadcasts.cancel');
     Route::post('/whatsapp/send-invoice/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendInvoiceNotification'])->name('whatsapp.send.invoice');
     Route::post('/whatsapp/send-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPaymentReminder'])->name('whatsapp.send.reminder');

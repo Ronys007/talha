@@ -95,10 +95,16 @@ class PaymentReminderController extends Controller
         $totalOverdue = 0;
         $overdueCount = 0;
         $dueTodayCount = 0;
+        $partialPaidCount = 0;
+        $totalPartialDue = 0;
 
         foreach ($bills as $b) {
             if (!$b['is_paid'] && $b['balance_due'] > 0) {
                 $totalReceivable += $b['balance_due'];
+                if ($b['is_partially_paid']) {
+                    $partialPaidCount++;
+                    $totalPartialDue += $b['balance_due'];
+                }
                 if ($b['overdue_days'] > 0) {
                     $totalOverdue += $b['balance_due'];
                     $overdueCount++;
@@ -138,6 +144,8 @@ class PaymentReminderController extends Controller
                 'total_overdue' => $totalOverdue,
                 'overdue_count' => $overdueCount,
                 'due_today_count' => $dueTodayCount,
+                'partial_paid_count' => $partialPaidCount,
+                'total_partial_due' => $totalPartialDue,
                 'total_bills' => count($bills),
             ],
             'business' => [
@@ -166,7 +174,20 @@ class PaymentReminderController extends Controller
         $inv->due_date = $validated['due_date'];
         $inv->save();
 
-        return back()->with('success', "Due date for Invoice #{$inv->invoice_number} updated to {$validated['due_date']}.");
+        $waNotice = "";
+        if (!empty($inv->customer_phone)) {
+            try {
+                $waService = app(\App\Services\WhatsAppService::class);
+                $res = $waService->sendInvoiceDocument($inv, 'payment_reminder');
+                if (($res['status'] ?? '') === 'sent') {
+                    $waNotice = " & reminder sent on WhatsApp";
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("WhatsApp reminder failed on updateDueDate: " . $e->getMessage());
+            }
+        }
+
+        return back()->with('success', "Due date updated to {$validated['due_date']}{$waNotice}.");
     }
 
     public function recordPayment(Request $request)
@@ -202,6 +223,8 @@ class PaymentReminderController extends Controller
 
         $paymentDate = !empty($validated['payment_date']) ? $validated['payment_date'] : date('Y-m-d');
         $inv->paid_amount = round($currentPaid + $paymentAmount, 2);
+        $newBalance = max(0, $totalAmount - $inv->paid_amount);
+
         if ($inv->paid_amount >= $totalAmount) {
             $inv->status = 'Paid';
             $inv->paid_at = $paymentDate;
@@ -210,7 +233,21 @@ class PaymentReminderController extends Controller
         }
         $inv->save();
 
-        return back()->with('success', "Customer payment of ₹" . number_format($paymentAmount, 2) . " recorded for Invoice #{$inv->invoice_number} on {$paymentDate}. Remaining balance: ₹" . number_format(max(0, $totalAmount - $inv->paid_amount), 2) . ".");
+        $waNotice = "";
+        if (!empty($inv->customer_phone)) {
+            try {
+                $waService = app(\App\Services\WhatsAppService::class);
+                $trigger = ($inv->status === 'Paid') ? 'bill_paid' : 'partial_payment';
+                $res = $waService->sendInvoiceDocument($inv, $trigger);
+                if (($res['status'] ?? '') === 'sent') {
+                    $waNotice = " & WhatsApp sent";
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("WhatsApp send failed on recordPayment: " . $e->getMessage());
+            }
+        }
+
+        return back()->with('success', "Payment of ₹" . number_format($paymentAmount, 2) . " recorded{$waNotice}.");
     }
 
     public function markAsPaid(Request $request)
@@ -230,6 +267,19 @@ class PaymentReminderController extends Controller
         $inv->paid_at = $paymentDate;
         $inv->save();
 
-        return back()->with('success', "Invoice #{$inv->invoice_number} marked as Received on {$paymentDate}.");
+        $waNotice = "";
+        if (!empty($inv->customer_phone)) {
+            try {
+                $waService = app(\App\Services\WhatsAppService::class);
+                $res = $waService->sendInvoiceDocument($inv, 'bill_paid');
+                if (($res['status'] ?? '') === 'sent') {
+                    $waNotice = " & WhatsApp sent";
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("WhatsApp send failed on markAsPaid: " . $e->getMessage());
+            }
+        }
+
+        return back()->with('success', "Invoice #{$inv->invoice_number} marked as Paid{$waNotice}.");
     }
 }

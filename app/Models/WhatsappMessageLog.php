@@ -13,6 +13,7 @@ class WhatsappMessageLog extends Model
         'user_id',
         'trigger_type',
         'invoice_id',
+        'purchase_order_id',
         'recipient_name',
         'recipient_phone',
         'message',
@@ -34,5 +35,10 @@ class WhatsappMessageLog extends Model
     public function invoice()
     {
         return $this->belongsTo(Invoice::class, 'invoice_id');
+    }
+
+    public function purchaseOrder()
+    {
+        return $this->belongsTo(PurchaseOrder::class, 'purchase_order_id');
     }
 }

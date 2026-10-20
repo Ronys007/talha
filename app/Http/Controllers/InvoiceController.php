@@ -456,17 +456,7 @@ class InvoiceController extends Controller
             if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
                 try {
                     $waService = app(\App\Services\WhatsAppService::class);
-                    $tmpl = $waService->getTemplate($invoice->user_id, 'bill_created');
-                    $msgData = $waService->buildInvoiceMessageData($invoice);
-                    $rendered = $waService->renderTemplate($tmpl->message, $msgData);
-                    $res = $waService->sendText(
-                        phone: $invoice->customer_phone,
-                        message: $rendered,
-                        merchantId: $invoice->user_id,
-                        triggerType: 'bill_created',
-                        invoiceId: $invoice->id,
-                        recipientName: $invoice->customer_name
-                    );
+                    $res = $waService->sendInvoiceDocument($invoice, 'bill_created');
                     if (($res['status'] ?? '') === 'sent') {
                         $waSentDirectly = true;
                     } else {
@@ -478,12 +468,12 @@ class InvoiceController extends Controller
             }
 
             if ($waSentDirectly) {
-                return redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created and WhatsApp notification sent directly to {$invoice->customer_name}!");
+                return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} created & sent on WhatsApp");
             }
 
-            $redirect = redirect()->route('invoices.index')->with('success', "Tax Invoice #{$invoice->invoice_number} created successfully.");
+            $redirect = redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} created successfully.");
             if ($waFailed) {
-                $redirect->with('warning', "Invoice saved, but WhatsApp could not be sent directly. Please connect your device in WhatsApp Hub.");
+                $redirect->with('warning', "Invoice saved. WhatsApp disconnected — link in WhatsApp Hub.");
             }
             return $redirect;
         } catch (\Throwable $e) {
@@ -755,17 +745,7 @@ class InvoiceController extends Controller
             if ($request->boolean('notify_whatsapp') && !empty($invoice->customer_phone)) {
                 try {
                     $waService = app(\App\Services\WhatsAppService::class);
-                    $tmpl = $waService->getTemplate($invoice->user_id, 'bill_updated');
-                    $msgData = $waService->buildInvoiceMessageData($invoice);
-                    $rendered = $waService->renderTemplate($tmpl->message, $msgData);
-                    $res = $waService->sendText(
-                        phone: $invoice->customer_phone,
-                        message: $rendered,
-                        merchantId: $invoice->user_id,
-                        triggerType: 'bill_updated',
-                        invoiceId: $invoice->id,
-                        recipientName: $invoice->customer_name
-                    );
+                    $res = $waService->sendInvoiceDocument($invoice, 'bill_updated');
                     if (($res['status'] ?? '') === 'sent') {
                         $waSentDirectly = true;
                     } else {
@@ -777,12 +757,12 @@ class InvoiceController extends Controller
             }
 
             if ($waSentDirectly) {
-                return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated and WhatsApp notification sent directly to {$invoice->customer_name}!");
+                return redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated & sent on WhatsApp");
             }
 
             $redirect = redirect()->route('invoices.index')->with('success', "Invoice #{$invoice->invoice_number} updated successfully.");
             if ($waFailed) {
-                $redirect->with('warning', "Invoice updated, but WhatsApp could not be sent directly. Please connect your device in WhatsApp Hub.");
+                $redirect->with('warning', "Invoice updated. WhatsApp disconnected — link in WhatsApp Hub.");
             }
             return $redirect;
         } catch (\Throwable $e) {

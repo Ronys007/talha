@@ -13,6 +13,10 @@ class WhatsappBroadcast extends Model
         'user_id',
         'title',
         'message_template',
+        'image_path',
+        'file_name',
+        'recipient_mode',
+        'custom_numbers',
         'filter_type',
         'status',
         'total_recipients',
@@ -21,6 +25,15 @@ class WhatsappBroadcast extends Model
         'scheduled_at',
         'completed_at',
     ];
+
+    protected $appends = [
+        'image_url',
+    ];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        return $this->image_path ? asset('storage/' . $this->image_path) : null;
+    }
 
     protected $casts = [
         'scheduled_at' => 'datetime',

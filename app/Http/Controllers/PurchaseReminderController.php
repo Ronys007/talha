@@ -150,7 +150,21 @@ class PurchaseReminderController extends Controller
         $po->due_date = $validated['due_date'];
         $po->save();
 
-        return back()->with('success', "Payment due date for Purchase Order #{$po->po_number} updated to {$validated['due_date']}.");
+        $waNotice = "";
+        try {
+            $waService = app(\App\Services\WhatsAppService::class);
+            $userPhone = $waService->resolveUserPhone($po->user_id);
+            if (!empty($userPhone)) {
+                $res = $waService->sendPurchaseReminderDocument($po, $userPhone);
+                if (($res['status'] ?? '') === 'sent' || ($res['mode'] ?? '') === 'automated') {
+                    $waNotice = " & reminder sent to WhatsApp";
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("WhatsApp reminder failed on purchase updateDueDate: " . $e->getMessage());
+        }
+
+        return back()->with('success', "Due date updated to {$validated['due_date']}{$waNotice}.");
     }
 
     public function recordPayment(Request $request)
@@ -191,7 +205,22 @@ class PurchaseReminderController extends Controller
         }
         $po->save();
 
-        return back()->with('success', "Supplier payment recorded for PO #{$po->po_number} on {$paymentDate}! Paid ₹" . number_format($paymentAmount, 2));
+        // Automatic WhatsApp notification sent to the user itself with attached purchase statement PDF!
+        $waNotice = "";
+        try {
+            $waService = app(\App\Services\WhatsAppService::class);
+            $userPhone = $waService->resolveUserPhone($po->user_id);
+            if (!empty($userPhone)) {
+                $res = $waService->sendPurchasePaymentRecordedDocument($po, $paymentAmount, $userPhone);
+                if (($res['status'] ?? '') === 'sent' || ($res['mode'] ?? '') === 'automated') {
+                    $waNotice = " & WhatsApp sent";
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on purchase recordPayment: " . $e->getMessage());
+        }
+
+        return back()->with('success', "Payment of ₹" . number_format($paymentAmount, 2) . " recorded{$waNotice}.");
     }
 
     public function markAsPaid(Request $request)
@@ -211,6 +240,21 @@ class PurchaseReminderController extends Controller
         $po->paid_at = $paymentDate;
         $po->save();
 
-        return back()->with('success', "Purchase Order #{$po->po_number} marked as Paid on {$paymentDate}.");
+        // Automatic WhatsApp settlement statement sent to the user itself
+        $waNotice = "";
+        try {
+            $waService = app(\App\Services\WhatsAppService::class);
+            $userPhone = $waService->resolveUserPhone($po->user_id);
+            if (!empty($userPhone)) {
+                $res = $waService->sendPurchasePaymentRecordedDocument($po, (float) $po->total_amount, $userPhone);
+                if (($res['status'] ?? '') === 'sent' || ($res['mode'] ?? '') === 'automated') {
+                    $waNotice = " & WhatsApp sent";
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("WhatsApp notification failed on purchase markAsPaid: " . $e->getMessage());
+        }
+
+        return back()->with('success', "PO #{$po->po_number} marked as Paid{$waNotice}.");
     }
 }

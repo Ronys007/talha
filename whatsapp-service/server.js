@@ -24,8 +24,8 @@ if (fs.existsSync(parentEnvPath)) {
 dotenv.config();
 
 const app = express();
-const PORT = process.env.WHATSAPP_SIDECAR_PORT || 3001;
-const HOST = process.env.WHATSAPP_SIDECAR_HOST || '127.0.0.1';
+const PORT = process.env.PORT || process.env.WHATSAPP_SIDECAR_PORT || 3001;
+const HOST = process.env.HOST || process.env.WHATSAPP_SIDECAR_HOST || '0.0.0.0';
 const SECRET = process.env.WHATSAPP_SIDECAR_SECRET || 'vama_secret_change_me_in_prod';
 
 app.use(cors());
@@ -368,28 +368,50 @@ app.post('/sessions/:id/send-message', async (req, res) => {
         let sendResult;
 
         if (base64File) {
-            // Document / PDF / Image upload via base64 buffer
+            // Buffer upload (Image or Document)
             const buffer = Buffer.from(base64File.replace(/^data:.*?;base64,/, ''), 'base64');
-            const docMime = mimetype || 'application/pdf';
-            const docName = fileName || 'Document.pdf';
+            const docMime = mimetype || 'application/octet-stream';
+            const docName = fileName || 'File';
 
-            sendResult = await session.sock.sendMessage(jid, {
-                document: buffer,
-                mimetype: docMime,
-                fileName: docName,
-                caption: caption || message || ''
-            });
+            if (docMime.startsWith('image/')) {
+                // Send as full-size native image photo message in same size and format
+                sendResult = await session.sock.sendMessage(jid, {
+                    image: buffer,
+                    caption: caption || message || '',
+                    mimetype: docMime,
+                    fileName: docName
+                });
+            } else {
+                // Send as downloadable document (PDF / spreadsheet / file)
+                sendResult = await session.sock.sendMessage(jid, {
+                    document: buffer,
+                    mimetype: docMime,
+                    fileName: docName,
+                    caption: caption || message || ''
+                });
+            }
         } else if (mediaUrl) {
-            // Document / PDF / Image from URL
-            const docMime = mimetype || (mediaUrl.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-            const docName = fileName || (mediaUrl.split('/').pop() || 'Invoice.pdf');
+            // URL upload (Image or Document)
+            const docMime = mimetype || (mediaUrl.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+            const docName = fileName || (mediaUrl.split('/').pop() || 'File');
 
-            sendResult = await session.sock.sendMessage(jid, {
-                document: { url: mediaUrl },
-                mimetype: docMime,
-                fileName: docName,
-                caption: caption || message || ''
-            });
+            if (docMime.startsWith('image/')) {
+                // Send as full-size native image photo message in same size and format
+                sendResult = await session.sock.sendMessage(jid, {
+                    image: { url: mediaUrl },
+                    caption: caption || message || '',
+                    mimetype: docMime,
+                    fileName: docName
+                });
+            } else {
+                // Send as downloadable document (PDF / spreadsheet / file)
+                sendResult = await session.sock.sendMessage(jid, {
+                    document: { url: mediaUrl },
+                    mimetype: docMime,
+                    fileName: docName,
+                    caption: caption || message || ''
+                });
+            }
         } else {
             // Plain text message
             sendResult = await session.sock.sendMessage(jid, {

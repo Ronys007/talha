@@ -49,16 +49,39 @@ class SendSingleBroadcastMessageJob implements ShouldQueue
         }
 
         try {
-            $result = $whatsAppService->sendText(
-                phone: $log->phone,
-                message: $log->message,
-                merchantId: $broadcast->user_id,
-                triggerType: 'broadcast',
-                invoiceId: null,
-                recipientName: $log->customer_name
-            );
+            $imageBase64 = null;
+            $imageName = null;
+            if (!empty($broadcast->image_path)) {
+                $fullPath = storage_path('app/public/' . $broadcast->image_path);
+                if (file_exists($fullPath)) {
+                    $imageBase64 = base64_encode(file_get_contents($fullPath));
+                    $imageName = $broadcast->file_name ?: basename($fullPath);
+                }
+            }
 
-            $status = ($result['status'] === 'sent' || $result['status'] === 'fallback_link') ? 'sent' : 'failed';
+            if ($imageBase64) {
+                $result = $whatsAppService->sendDocument(
+                    phone: $log->phone,
+                    fileUrlOrBase64: $imageBase64,
+                    fileName: $imageName ?: 'Offer.jpg',
+                    caption: $log->message,
+                    merchantId: $broadcast->user_id,
+                    triggerType: 'broadcast',
+                    invoiceId: null,
+                    recipientName: $log->customer_name
+                );
+            } else {
+                $result = $whatsAppService->sendText(
+                    phone: $log->phone,
+                    message: $log->message,
+                    merchantId: $broadcast->user_id,
+                    triggerType: 'broadcast',
+                    invoiceId: null,
+                    recipientName: $log->customer_name
+                );
+            }
+
+            $status = (($result['status'] ?? '') === 'sent' || ($result['status'] ?? '') === 'fallback_link') ? 'sent' : 'failed';
 
             $log->update([
                 'status' => $status,
