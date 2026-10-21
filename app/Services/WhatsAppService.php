@@ -82,11 +82,20 @@ class WhatsAppService
     }
 
     /**
-     * Ensure the Node.js Baileys sidecar process is running; auto-launch if stopped.
+     * Check if the configured sidecar points to a local host
+     */
+    public function isLocalSidecar(): bool
+    {
+        $host = parse_url($this->sidecarUrl, PHP_URL_HOST) ?? '';
+        return in_array($host, ['localhost', '127.0.0.1', '::1', '0.0.0.0', '']);
+    }
+
+    /**
+     * Ensure the Node.js Baileys sidecar process is running; auto-launch if stopped (local environments only).
      */
     public function ensureSidecarRunning(): void
     {
-        if (app()->environment('testing')) {
+        if (app()->environment('testing') || !$this->isLocalSidecar()) {
             return;
         }
 
@@ -122,13 +131,15 @@ class WhatsAppService
      */
     public function getSessionStatus(?int $merchantId = null): array
     {
-        $this->ensureSidecarRunning();
+        if ($this->isLocalSidecar()) {
+            $this->ensureSidecarRunning();
+        }
         $sessionId = $this->getSessionId($merchantId);
 
         try {
             $response = Http::withHeaders([
                 'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(5)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
+            ])->timeout(8)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -139,21 +150,34 @@ class WhatsAppService
                     'phone' => $data['phone'] ?? null,
                     'qr' => $data['qr'] ?? null,
                     'lastActive' => $data['lastActive'] ?? null,
+                    'sidecar_url' => $this->sidecarUrl,
                 ];
             }
+
+            $errMsg = $response->json('error') ?? "Sidecar returned HTTP " . $response->status();
+            return [
+                'success' => false,
+                'sessionId' => $sessionId,
+                'status' => 'disconnected',
+                'phone' => null,
+                'qr' => null,
+                'lastActive' => null,
+                'error' => $errMsg,
+                'sidecar_url' => $this->sidecarUrl,
+            ];
         } catch (\Throwable $e) {
             Log::warning("WhatsApp sidecar getSessionStatus error [{$sessionId}]: " . $e->getMessage());
+            return [
+                'success' => false,
+                'sessionId' => $sessionId,
+                'status' => 'disconnected',
+                'phone' => null,
+                'qr' => null,
+                'lastActive' => null,
+                'error' => 'Sidecar unreachable (' . $e->getMessage() . ')',
+                'sidecar_url' => $this->sidecarUrl,
+            ];
         }
-
-        return [
-            'success' => false,
-            'sessionId' => $sessionId,
-            'status' => 'disconnected',
-            'phone' => null,
-            'qr' => null,
-            'lastActive' => null,
-            'error' => 'Sidecar service is not reachable',
-        ];
     }
 
     /**
@@ -161,27 +185,40 @@ class WhatsAppService
      */
     public function connectSession(?int $merchantId = null): array
     {
-        $this->ensureSidecarRunning();
+        if ($this->isLocalSidecar()) {
+            $this->ensureSidecarRunning();
+        }
         $sessionId = $this->getSessionId($merchantId);
 
         try {
             $response = Http::withHeaders([
                 'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(8)->post("{$this->sidecarUrl}/sessions/{$sessionId}/connect");
+            ])->timeout(15)->post("{$this->sidecarUrl}/sessions/{$sessionId}/connect");
 
             if ($response->successful()) {
-                return $response->json();
+                $data = $response->json();
+                $data['sidecar_url'] = $this->sidecarUrl;
+                return $data;
             }
+
+            $errMsg = $response->json('error') ?? "Sidecar returned HTTP " . $response->status();
+            return [
+                'success' => false,
+                'sessionId' => $sessionId,
+                'status' => 'disconnected',
+                'error' => $errMsg,
+                'sidecar_url' => $this->sidecarUrl,
+            ];
         } catch (\Throwable $e) {
             Log::error("WhatsApp sidecar connectSession error [{$sessionId}]: " . $e->getMessage());
+            return [
+                'success' => false,
+                'sessionId' => $sessionId,
+                'status' => 'disconnected',
+                'error' => 'Sidecar unreachable (' . $e->getMessage() . ')',
+                'sidecar_url' => $this->sidecarUrl,
+            ];
         }
-
-        return [
-            'success' => false,
-            'sessionId' => $sessionId,
-            'status' => 'disconnected',
-            'error' => 'Unable to connect to WhatsApp sidecar service',
-        ];
     }
 
     /**

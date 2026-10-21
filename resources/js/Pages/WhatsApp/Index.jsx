@@ -43,6 +43,7 @@ import {
     RotateCcw,
     Download,
     Paperclip,
+    AlertCircle,
 } from "lucide-react";
 
 export default function WhatsAppHub({
@@ -63,6 +64,8 @@ export default function WhatsAppHub({
     const [phone, setPhone] = useState(sessionStatus?.phone || null);
     const [qrCode, setQrCode] = useState(sessionStatus?.qr || null);
     const [isPolling, setIsPolling] = useState(false);
+    const [connectionError, setConnectionError] = useState(sessionStatus?.error || null);
+    const [connectingMessage, setConnectingMessage] = useState("");
     const [copiedTag, setCopiedTag] = useState(null);
     const [selectedTemplateTab, setSelectedTemplateTab] = useState("bill_created");
     const [logSearch, setLogSearch] = useState("");
@@ -139,20 +142,32 @@ export default function WhatsAppHub({
     // Auto-poll status when QR is waiting or connecting
     useEffect(() => {
         let interval = null;
+        let pollAttempts = 0;
         if (status === "qr_ready" || status === "connecting") {
             setIsPolling(true);
             interval = setInterval(async () => {
+                pollAttempts++;
                 try {
                     const res = await fetch("/whatsapp/session/status");
                     if (res.ok) {
                         const data = await res.json();
-                        setStatus(data.status);
-                        setPhone(data.phone);
-                        setQrCode(data.qr);
-                        if (data.status === "connected") {
-                            clearInterval(interval);
-                            setIsPolling(false);
-                            router.reload({ only: ["sessionStatus"] });
+                        if (data.success) {
+                            setStatus(data.status);
+                            setPhone(data.phone);
+                            if (data.qr) {
+                                setQrCode(data.qr);
+                                setConnectionError(null);
+                            }
+                            if (data.status === "connected") {
+                                clearInterval(interval);
+                                setIsPolling(false);
+                                router.reload({ only: ["sessionStatus"] });
+                            }
+                        } else if (pollAttempts >= 4 && data.status === "disconnected") {
+                            // If sidecar repeatedly fails or returns error
+                            setStatus("disconnected");
+                            setConnectionError(data.error || "Unable to reach WhatsApp sidecar.");
+                            setQrCode(null);
                         }
                     }
                 } catch (e) {
@@ -201,19 +216,44 @@ export default function WhatsAppHub({
         };
     }, [broadcastList]);
 
-    const handleConnect = () => {
+    const handleConnect = async () => {
         setStatus("connecting");
-        router.post("/whatsapp/session/connect", {}, {
-            preserveScroll: true,
-            onSuccess: (page) => {
-                const s = page.props?.sessionStatus;
-                if (s) {
-                    setStatus(s.status);
-                    setPhone(s.phone);
-                    setQrCode(s.qr);
+        setConnectionError(null);
+        setConnectingMessage("Contacting WhatsApp server...");
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+            const res = await fetch("/whatsapp/session/connect", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-CSRF-TOKEN": csrfToken || "",
+                },
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                setStatus(data.status);
+                setPhone(data.phone || null);
+                if (data.qr) {
+                    setQrCode(data.qr);
+                    setConnectingMessage("");
+                } else if (data.status === "connecting") {
+                    setConnectingMessage("Session started. Generating WhatsApp QR code...");
                 }
-            },
-        });
+            } else {
+                setStatus("disconnected");
+                setConnectionError(data.error || "Failed to connect to WhatsApp sidecar.");
+                setConnectingMessage("");
+            }
+        } catch (err) {
+            console.error("Connect error:", err);
+            setStatus("disconnected");
+            setConnectionError("Network error: Could not reach the WhatsApp server.");
+            setConnectingMessage("");
+        }
     };
 
     const handleLogout = () => {
@@ -693,19 +733,63 @@ export default function WhatsAppHub({
                                         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
                                             WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={handleConnect}
+                                            style={{ marginTop: 4, fontSize: 11.5 }}
+                                        >
+                                            <RefreshCw size={12} /> Regenerate QR Code
+                                        </button>
                                     </div>
                                 ) : status === "connecting" ? (
                                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                                        <RefreshCw size={24} className="animate-spin" color="var(--accent)" />
+                                        <RefreshCw size={26} className="animate-spin" color="var(--accent)" />
                                         <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary)" }}>
-                                            Initializing Baileys Socket...
+                                            {connectingMessage || "Initializing Baileys Socket..."}
                                         </div>
-                                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                                            Generating encrypted session tokens.
+                                        <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", maxWidth: 280 }}>
+                                            Connecting to WhatsApp server and negotiating encrypted session keys (takes 3–8 seconds).
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={() => {
+                                                setStatus("disconnected");
+                                                setConnectingMessage("");
+                                            }}
+                                            style={{ marginTop: 4, fontSize: 11 }}
+                                        >
+                                            Cancel
+                                        </button>
                                     </div>
                                 ) : (
                                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                                        {connectionError && (
+                                            <div
+                                                style={{
+                                                    background: "rgba(239, 68, 68, 0.1)",
+                                                    color: "#ef4444",
+                                                    border: "1px solid rgba(239, 68, 68, 0.25)",
+                                                    borderRadius: 8,
+                                                    padding: "8px 12px",
+                                                    fontSize: 11.5,
+                                                    maxWidth: 340,
+                                                    textAlign: "left",
+                                                    display: "flex",
+                                                    gap: 8,
+                                                    alignItems: "flex-start",
+                                                    marginBottom: 4,
+                                                }}
+                                            >
+                                                <AlertCircle size={15} style={{ shrink: 0, marginTop: 2 }} />
+                                                <div>
+                                                    <strong style={{ display: "block", marginBottom: 2 }}>Service Warning</strong>
+                                                    <span>{connectionError}</span>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div
                                             style={{
                                                 width: 44,
@@ -723,7 +807,7 @@ export default function WhatsAppHub({
                                         <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
                                             No Active WhatsApp Session
                                         </div>
-                                        <div style={{ fontSize: 11.5, color: "var(--text-muted)", maxWidth: 300 }}>
+                                        <div style={{ fontSize: 11.5, color: "var(--text-muted)", maxWidth: 300, textAlign: "center" }}>
                                             Click below to generate a QR code and connect your merchant phone number in 10 seconds.
                                         </div>
                                         <button

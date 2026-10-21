@@ -13,6 +13,14 @@ import makeWASocket, {
     makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 
+// Top-level crash prevention: keep the sidecar running even on unhandled network drops
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception in WhatsApp sidecar:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection in WhatsApp sidecar:', reason);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -119,7 +127,13 @@ async function initSession(sessionId) {
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-        const { version } = await fetchLatestBaileysVersion();
+        let version = [2, 3000, 1015901307];
+        try {
+            const fetched = await fetchLatestBaileysVersion();
+            if (fetched?.version) version = fetched.version;
+        } catch (vErr) {
+            logger.warn({ err: vErr.message }, 'Failed to fetch latest Baileys version from upstream, using safe fallback');
+        }
 
         const sock = makeWASocket({
             version,
@@ -311,9 +325,9 @@ app.post('/sessions/:id/connect', async (req, res) => {
 
         session = await initSession(sessionId);
 
-        // Wait up to 3 seconds for initial QR or connection if possible
+        // Wait up to 6 seconds for initial QR or connection
         let attempts = 0;
-        while (attempts < 6 && session.status === 'connecting') {
+        while (attempts < 12 && session.status === 'connecting') {
             await new Promise(r => setTimeout(r, 500));
             attempts++;
         }

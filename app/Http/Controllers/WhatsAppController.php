@@ -125,10 +125,23 @@ class WhatsAppController extends Controller
     /**
      * Connect or request fresh QR
      */
-    public function connectSession(WhatsAppService $whatsAppService)
+    public function connectSession(Request $request, WhatsAppService $whatsAppService)
     {
         $ownerId = $this->getOwnerId();
         $result = $whatsAppService->connectSession($ownerId);
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json($result);
+        }
+
+        if (!($result['success'] ?? false)) {
+            $msg = $result['error'] ?? 'Failed to connect to WhatsApp sidecar service.';
+            if (!empty($result['sidecar_url'])) {
+                $msg .= " (Sidecar: {$result['sidecar_url']})";
+            }
+            return back()->with('error', $msg);
+        }
+
         return back()->with('success', 'WhatsApp connection initiated. Scan the QR code with WhatsApp.');
     }
 
