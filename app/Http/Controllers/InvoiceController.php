@@ -809,6 +809,29 @@ class InvoiceController extends Controller
         }
     }
 
+    public function destroyCustomer($id)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $isSuperAdmin = auth()->user()?->isSuperAdmin();
+
+        $query = Customer::where('id', $id);
+        if (!$isSuperAdmin) {
+            $query->whereIn('user_id', $ownerIds);
+        }
+        $customer = $query->firstOrFail();
+        $name = $customer->name;
+        $customer->delete();
+
+        if (request()->wantsJson() && !request()->header('X-Inertia')) {
+            return response()->json([
+                'success' => true,
+                'message' => "Customer '{$name}' deleted successfully.",
+            ]);
+        }
+
+        return back()->with('success', "Customer '{$name}' deleted successfully.");
+    }
+
     public function print($id)
     {
         $ownerIds = $this->getStoreUserIds();

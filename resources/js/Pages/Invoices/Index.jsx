@@ -1553,16 +1553,21 @@ function InvoiceFormModal({
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
     const [notifyWhatsapp, setNotifyWhatsapp] = useState(true);
 
+    const [customerList, setCustomerList] = useState(customers || []);
+    useEffect(() => {
+        setCustomerList(customers || []);
+    }, [customers]);
+
     // Filter saved customers matching name, phone, or GST
     const filteredCustomers = useMemo(() => {
-        if (!customerName || !customerName.trim()) return customers.slice(0, 8);
+        if (!customerName || !customerName.trim()) return (customerList || []).slice(0, 8);
         const q = customerName.toLowerCase().trim();
-        return customers.filter((c) =>
+        return (customerList || []).filter((c) =>
             (c.name && c.name.toLowerCase().includes(q)) ||
             (c.phone && c.phone.includes(q)) ||
             (c.gst_number && c.gst_number.toLowerCase().includes(q))
         ).slice(0, 8);
-    }, [customers, customerName]);
+    }, [customerList, customerName]);
 
     const handleSelectCustomer = (cust) => {
         setCustomerName(cust.name || "");
@@ -1574,6 +1579,34 @@ function InvoiceFormModal({
             setPlaceOfSupply(cust.state);
         }
         setShowCustomerDropdown(false);
+    };
+
+    const handleClearCustomerDetails = () => {
+        setCustomerName("");
+        setCustomerAddress("");
+        setCustomerGstNumber("");
+        setCustomerPhone("");
+        setCustomerState("");
+        setPlaceOfSupply("");
+        setShowCustomerDropdown(false);
+    };
+
+    const handleDeleteSavedCustomer = (cust) => {
+        if (!window.confirm(`Are you sure you want to delete "${cust.name}" from saved customers?`)) {
+            return;
+        }
+
+        // Optimistically remove from list immediately
+        setCustomerList((prev) => (prev || []).filter((item) => item.id !== cust.id));
+
+        router.delete(`/customers/${cust.id}`, {
+            preserveScroll: true,
+            preserveState: true,
+            onError: (err) => {
+                alert("Failed to delete customer: " + (err?.message || "Server error"));
+                setCustomerList(customers || []);
+            },
+        });
     };
 
     // Invoice Meta
@@ -2137,25 +2170,91 @@ function InvoiceFormModal({
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13.5, color: "var(--info)" }}>
                                         <User size={16} /> Buyer Details (Billed To)
                                     </div>
-                                    <span style={{ fontSize: 11, background: "rgba(59, 130, 246, 0.1)", color: "var(--info)", padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>
-                                        ✓ Saved for future
-                                    </span>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        {(customerName || customerAddress || customerPhone || customerGstNumber || placeOfSupply) && (
+                                            <button
+                                                type="button"
+                                                onClick={handleClearCustomerDetails}
+                                                style={{
+                                                    fontSize: 11,
+                                                    padding: "3px 8px",
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: 4,
+                                                    color: "#ef4444",
+                                                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                                                    background: "rgba(239, 68, 68, 0.08)",
+                                                    borderRadius: 6,
+                                                    cursor: "pointer",
+                                                    fontWeight: 600,
+                                                    transition: "all 0.15s ease",
+                                                }}
+                                                title="Wipe out all entered customer details"
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = "#ef4444";
+                                                    e.currentTarget.style.color = "#ffffff";
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = "rgba(239, 68, 68, 0.08)";
+                                                    e.currentTarget.style.color = "#ef4444";
+                                                }}
+                                            >
+                                                <X size={12} strokeWidth={2.5} /> Clear Details
+                                            </button>
+                                        )}
+                                        <span style={{ fontSize: 11, background: "rgba(59, 130, 246, 0.1)", color: "var(--info)", padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>
+                                            ✓ Saved for future
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginBottom: 10, position: "relative" }}>
                                     <label className="form-label">Customer / Client Name *</label>
-                                    <input
-                                        className="form-input"
-                                        placeholder="Type customer name or pick saved..."
-                                        value={customerName}
-                                        onChange={(e) => {
-                                            setCustomerName(e.target.value);
-                                            setShowCustomerDropdown(true);
-                                        }}
-                                        onFocus={() => setShowCustomerDropdown(true)}
-                                        onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
-                                        required
-                                    />
+                                    <div style={{ position: "relative" }}>
+                                        <input
+                                            className="form-input"
+                                            placeholder="Type customer name or pick saved..."
+                                            value={customerName}
+                                            onChange={(e) => {
+                                                setCustomerName(e.target.value);
+                                                setShowCustomerDropdown(true);
+                                            }}
+                                            onFocus={() => setShowCustomerDropdown(true)}
+                                            onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 250)}
+                                            required
+                                            style={{ paddingRight: customerName ? 32 : undefined }}
+                                        />
+                                        {customerName && (
+                                            <button
+                                                type="button"
+                                                title="Wipe out customer name"
+                                                onMouseDown={(e) => {
+                                                    e.stopPropagation();
+                                                    e.preventDefault();
+                                                    setCustomerName("");
+                                                }}
+                                                style={{
+                                                    position: "absolute",
+                                                    right: 8,
+                                                    top: "50%",
+                                                    transform: "translateY(-50%)",
+                                                    border: "none",
+                                                    background: "transparent",
+                                                    color: "var(--text-muted)",
+                                                    cursor: "pointer",
+                                                    padding: 4,
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    borderRadius: 4,
+                                                }}
+                                                onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
+                                                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
                                     {showCustomerDropdown && filteredCustomers.length > 0 && (
                                         <div
                                             style={{
@@ -2173,8 +2272,9 @@ function InvoiceFormModal({
                                                 marginTop: 4,
                                             }}
                                         >
-                                            <div style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)" }}>
-                                                Saved Customers ({filteredCustomers.length})
+                                            <div style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                <span>Saved Customers ({filteredCustomers.length})</span>
+                                                <span style={{ fontSize: 10, textTransform: "none", fontWeight: 500, color: "var(--text-muted)" }}>Pick to auto-fill • '✕' to delete</span>
                                             </div>
                                             {filteredCustomers.map((c) => (
                                                 <div
@@ -2186,16 +2286,55 @@ function InvoiceFormModal({
                                                         borderBottom: "1px solid var(--border)",
                                                         fontSize: 13,
                                                         transition: "background 0.15s ease",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "space-between",
+                                                        gap: 10,
                                                     }}
                                                     onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
                                                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                                                 >
-                                                    <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{c.name}</div>
-                                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 2 }}>
-                                                        {c.phone && <span>📞 {c.phone}</span>}
-                                                        {c.gst_number && <span>GST: {c.gst_number}</span>}
-                                                        {c.state && <span>📍 {c.state}</span>}
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{c.name}</div>
+                                                        <div style={{ fontSize: 11.5, color: "var(--text-muted)", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 2 }}>
+                                                            {c.phone && <span>📞 {c.phone}</span>}
+                                                            {c.gst_number && <span>GST: {c.gst_number}</span>}
+                                                            {c.state && <span>📍 {c.state}</span>}
+                                                        </div>
                                                     </div>
+                                                    <button
+                                                        type="button"
+                                                        title="Delete saved customer permanently"
+                                                        onMouseDown={(e) => {
+                                                            e.stopPropagation();
+                                                            e.preventDefault();
+                                                            handleDeleteSavedCustomer(c);
+                                                        }}
+                                                        style={{
+                                                            border: "none",
+                                                            background: "rgba(239, 68, 68, 0.1)",
+                                                            color: "#ef4444",
+                                                            borderRadius: "50%",
+                                                            width: 24,
+                                                            height: 24,
+                                                            display: "inline-flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            cursor: "pointer",
+                                                            flexShrink: 0,
+                                                            transition: "all 0.15s ease",
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.background = "#ef4444";
+                                                            e.currentTarget.style.color = "#ffffff";
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
+                                                            e.currentTarget.style.color = "#ef4444";
+                                                        }}
+                                                    >
+                                                        <X size={13} strokeWidth={2.5} />
+                                                    </button>
                                                 </div>
                                             ))}
                                         </div>

@@ -69,6 +69,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices', [\App\Http\Controllers\InvoiceController::class, 'store'])->name('invoices.store');
     Route::match(['post', 'put', 'patch'], '/invoices/{id}', [\App\Http\Controllers\InvoiceController::class, 'update'])->name('invoices.update');
     Route::delete('/invoices/{id}', [\App\Http\Controllers\InvoiceController::class, 'destroy'])->name('invoices.destroy');
+    Route::delete('/customers/{id}', [\App\Http\Controllers\InvoiceController::class, 'destroyCustomer'])->name('customers.destroy');
     Route::get('/invoices/{id}/print', [\App\Http\Controllers\InvoiceController::class, 'print'])->name('invoices.print');
 
     // ==================== Admin Only Routes ====================
