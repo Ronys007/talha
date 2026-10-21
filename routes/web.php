@@ -119,4 +119,3 @@ Route::middleware('auth')->group(function () {
 Route::get('/i/{hash}', [\App\Http\Controllers\PublicInvoiceController::class, 'show'])->name('invoice.public');
 
 require __DIR__.'/auth.php';
-

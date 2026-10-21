@@ -224,10 +224,11 @@ class WhatsAppService
         ?string $recipientName = null,
         ?int $purchaseOrderId = null
     ): array {
-        $phone = $this->formatPhoneNumber($phone);
+        $formattedPhone = $this->formatPhoneNumber($phone);
+        $storedPhone = preg_replace('/\D+/', '', $phone) ?: $formattedPhone;
         $sessionId = $this->getSessionId($merchantId);
         $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
-        $waMeUrl = $this->generateWaMeFallbackUrl($phone, $message);
+        $waMeUrl = $this->generateWaMeFallbackUrl($formattedPhone, $message);
 
         // Attempt automated delivery via sidecar
         $status = $this->getSessionStatus($merchantId);
@@ -238,7 +239,7 @@ class WhatsAppService
                 $response = Http::withHeaders([
                     'X-Whatsapp-Secret' => $this->secret,
                 ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$sessionId}/send-message", [
-                    'phone' => $phone,
+                    'phone' => $formattedPhone,
                     'message' => $message,
                 ]);
 
@@ -249,7 +250,7 @@ class WhatsAppService
                         'invoice_id' => $invoiceId,
                         'purchase_order_id' => $purchaseOrderId,
                         'recipient_name' => $recipientName,
-                        'recipient_phone' => $phone,
+                        'recipient_phone' => $storedPhone,
                         'message' => $message,
                         'status' => 'sent',
                         'wa_me_url' => $waMeUrl,
@@ -280,7 +281,7 @@ class WhatsAppService
             'invoice_id' => $invoiceId,
             'purchase_order_id' => $purchaseOrderId,
             'recipient_name' => $recipientName,
-            'recipient_phone' => $phone,
+            'recipient_phone' => $storedPhone,
             'message' => $message,
             'status' => 'fallback_link',
             'wa_me_url' => $waMeUrl,
@@ -312,10 +313,11 @@ class WhatsAppService
         ?string $recipientName = null,
         ?int $purchaseOrderId = null
     ): array {
-        $phone = $this->formatPhoneNumber($phone);
+        $formattedPhone = $this->formatPhoneNumber($phone);
+        $storedPhone = preg_replace('/\D+/', '', $phone) ?: $formattedPhone;
         $sessionId = $this->getSessionId($merchantId);
         $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
-        $waMeUrl = $this->generateWaMeFallbackUrl($phone, $caption);
+        $waMeUrl = $this->generateWaMeFallbackUrl($formattedPhone, $caption);
 
         $status = $this->getSessionStatus($merchantId);
         if ($status['success'] && ($status['status'] ?? '') === 'connected') {
@@ -343,7 +345,7 @@ class WhatsAppService
                 }
 
                 $payload = [
-                    'phone' => $phone,
+                    'phone' => $formattedPhone,
                     'fileName' => $fileName,
                     'caption' => $caption,
                     'mimetype' => $mime,
@@ -366,7 +368,7 @@ class WhatsAppService
                         'invoice_id' => $invoiceId,
                         'purchase_order_id' => $purchaseOrderId,
                         'recipient_name' => $recipientName,
-                        'recipient_phone' => $phone,
+                        'recipient_phone' => $storedPhone,
                         'message' => $caption . " [Attached: {$fileName}]",
                         'status' => 'sent',
                         'wa_me_url' => $waMeUrl,
@@ -542,6 +544,7 @@ class WhatsAppService
         $msgData = $this->buildInvoiceMessageData($invoice);
         $caption = $this->renderTemplate($template->message, $msgData);
         $fileName = "Invoice_{$invoice->invoice_number}.pdf";
+        $logTriggerType = $triggerType;
 
         try {
             $pdfBytes = $this->generateInvoicePdf($invoice);
@@ -553,7 +556,7 @@ class WhatsAppService
                 fileName: $fileName,
                 caption: $caption,
                 merchantId: $invoice->user_id,
-                triggerType: $resolvedTrigger,
+                triggerType: $logTriggerType,
                 invoiceId: $invoice->id,
                 recipientName: $invoice->customer_name
             );
@@ -564,7 +567,7 @@ class WhatsAppService
                 phone: $invoice->customer_phone,
                 message: $caption,
                 merchantId: $invoice->user_id,
-                triggerType: $resolvedTrigger,
+                triggerType: $logTriggerType,
                 invoiceId: $invoice->id,
                 recipientName: $invoice->customer_name
             );
