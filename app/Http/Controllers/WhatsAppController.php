@@ -130,7 +130,7 @@ class WhatsAppController extends Controller
         $ownerId = $this->getOwnerId();
         $result = $whatsAppService->connectSession($ownerId);
 
-        if ($request->wantsJson() || $request->ajax()) {
+        if (($request->wantsJson() || $request->ajax()) && !$request->header('X-Inertia')) {
             return response()->json($result);
         }
 
@@ -496,7 +496,7 @@ class WhatsAppController extends Controller
 
         $result = $whatsAppService->recallMessage($log);
 
-        if (request()->wantsJson() || request()->ajax()) {
+        if ((request()->wantsJson() || request()->ajax()) && !request()->header('X-Inertia')) {
             return response()->json($result);
         }
 
@@ -504,6 +504,11 @@ class WhatsAppController extends Controller
             return back()->with('success', $result['message'] ?? 'Message recalled from WhatsApp (Delete for Everyone).');
         }
 
-        return back()->with('error', $result['error'] ?? 'Failed to recall message from WhatsApp.');
+        $errMsg = $result['error'] ?? 'Failed to recall message from WhatsApp.';
+        if (str_contains($errMsg, '404')) {
+            $errMsg = 'WhatsApp sidecar returned 404. Please redeploy your whatsapp-service on Koyeb / Render so it gets the new recall feature.';
+        }
+
+        return back()->with('error', $errMsg);
     }
 }
