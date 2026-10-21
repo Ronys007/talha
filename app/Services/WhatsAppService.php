@@ -19,9 +19,19 @@ class WhatsAppService
 
     public function __construct()
     {
-        $this->sidecarUrl = rtrim(config('services.whatsapp.sidecar_url', 'http://127.0.0.1:3001'), '/');
-        $this->secret = config('services.whatsapp.secret', 'vama_secret_change_me_in_prod');
-        $this->dailyLimit = (int) config('services.whatsapp.daily_broadcast_limit', 150);
+        $url = config('services.whatsapp.sidecar_url');
+        if (empty($url) || $url === 'http://127.0.0.1:3001') {
+            $url = env('WHATSAPP_SIDECAR_URL') ?: $url;
+        }
+        $this->sidecarUrl = rtrim($url ?: 'http://127.0.0.1:3001', '/');
+
+        $secret = config('services.whatsapp.secret');
+        if (empty($secret) || $secret === 'vama_secret_change_me_in_prod') {
+            $secret = env('WHATSAPP_SIDECAR_SECRET') ?: $secret;
+        }
+        $this->secret = $secret ?: 'vama_secret_change_me_in_prod';
+
+        $this->dailyLimit = (int) (config('services.whatsapp.daily_broadcast_limit') ?: env('WHATSAPP_DAILY_BROADCAST_LIMIT', 150));
     }
 
     /**

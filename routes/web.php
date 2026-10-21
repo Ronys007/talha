@@ -113,6 +113,22 @@ Route::middleware('auth')->group(function () {
     Route::post('/whatsapp/send-invoice/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendInvoiceNotification'])->name('whatsapp.send.invoice');
     Route::post('/whatsapp/send-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPaymentReminder'])->name('whatsapp.send.reminder');
     Route::post('/whatsapp/send-purchase-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPurchaseReminder'])->name('whatsapp.send.purchase-reminder');
+
+    // Quick Cache Clear & Diagnostics Route for Shared Hosting
+    Route::get('/clear-cache', function () {
+        \Illuminate\Support\Facades\Artisan::call('optimize:clear');
+        $sidecarUrl = config('services.whatsapp.sidecar_url');
+        $envSidecarUrl = env('WHATSAPP_SIDECAR_URL');
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Cache cleared successfully!',
+            'active_sidecar_url' => $sidecarUrl,
+            'env_sidecar_url' => $envSidecarUrl,
+            'hint' => ($sidecarUrl === 'http://127.0.0.1:3001' || empty($sidecarUrl))
+                ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://your-app.koyeb.app) and refresh.'
+                : 'Sidecar URL configured correctly!'
+        ]);
+    })->name('cache.clear');
 });
 
 // ==================== Public Signed/Hashed Invoice Route ====================

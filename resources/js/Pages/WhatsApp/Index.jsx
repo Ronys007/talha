@@ -768,24 +768,48 @@ export default function WhatsAppHub({
                                         {connectionError && (
                                             <div
                                                 style={{
-                                                    background: "rgba(239, 68, 68, 0.1)",
-                                                    color: "#ef4444",
-                                                    border: "1px solid rgba(239, 68, 68, 0.25)",
+                                                    background: "rgba(239, 68, 68, 0.08)",
+                                                    color: "#dc2626",
+                                                    border: "1px solid rgba(239, 68, 68, 0.3)",
                                                     borderRadius: 8,
-                                                    padding: "8px 12px",
-                                                    fontSize: 11.5,
-                                                    maxWidth: 340,
+                                                    padding: "10px 14px",
+                                                    fontSize: 12,
+                                                    maxWidth: 380,
                                                     textAlign: "left",
                                                     display: "flex",
-                                                    gap: 8,
+                                                    gap: 10,
                                                     alignItems: "flex-start",
-                                                    marginBottom: 4,
+                                                    marginBottom: 8,
                                                 }}
                                             >
-                                                <AlertCircle size={15} style={{ shrink: 0, marginTop: 2 }} />
-                                                <div>
-                                                    <strong style={{ display: "block", marginBottom: 2 }}>Service Warning</strong>
-                                                    <span>{connectionError}</span>
+                                                <AlertCircle size={18} style={{ shrink: 0, marginTop: 2, color: "#ef4444" }} />
+                                                <div style={{ flex: 1 }}>
+                                                    <strong style={{ display: "block", marginBottom: 3, fontSize: 12.5, color: "#b91c1c" }}>
+                                                        WhatsApp Service Unreachable
+                                                    </strong>
+                                                    <div style={{ fontSize: 11.5, lineHeight: 1.4, color: "#374151" }}>
+                                                        {connectionError.includes("127.0.0.1:3001") ? (
+                                                            <span>
+                                                                Your live site is trying to connect to <code>127.0.0.1:3001</code> (localhost).
+                                                                On live hosting (like Hostinger), you must add your deployed cloud service URL in your <code>.env</code> file:
+                                                                <br />
+                                                                <code style={{ display: "block", margin: "6px 0", padding: "4px 6px", background: "#f3f4f6", borderRadius: 4, color: "#111827", fontSize: 11 }}>
+                                                                    WHATSAPP_SIDECAR_URL=https://your-app.koyeb.app
+                                                                </code>
+                                                                Then click below to reload your configuration:
+                                                                <a
+                                                                    href="/clear-cache"
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    style={{ display: "inline-block", marginTop: 4, fontWeight: 600, color: "var(--accent)", textDecoration: "underline" }}
+                                                                >
+                                                                    Click here to clear cache &amp; reload config &rarr;
+                                                                </a>
+                                                            </span>
+                                                        ) : (
+                                                            <span>{connectionError}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
