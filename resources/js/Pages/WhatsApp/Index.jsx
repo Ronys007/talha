@@ -72,6 +72,9 @@ export default function WhatsAppHub({
     const [logStatusFilter, setLogStatusFilter] = useState("all");
     const [recallingId, setRecallingId] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
+    const [upiId, setUpiId] = useState(profile?.upi_id || "");
+    const [googleReviewUrl, setGoogleReviewUrl] = useState(profile?.google_review_url || "");
+    const [profileSaving, setProfileSaving] = useState(false);
     const fileInputRef = useRef(null);
 
     // Test message form
@@ -293,6 +296,36 @@ export default function WhatsAppHub({
         templatesForm.post("/whatsapp/templates", {
             preserveScroll: true,
         });
+    };
+
+    const handleSaveProfile = async (e) => {
+        if (e) e.preventDefault();
+        setProfileSaving(true);
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+            const res = await fetch("/whatsapp/profile", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-CSRF-TOKEN": csrfToken || "",
+                },
+                body: JSON.stringify({
+                    upi_id: upiId,
+                    google_review_url: googleReviewUrl,
+                }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                templatesForm.setData("upi_id", upiId);
+                templatesForm.setData("google_review_url", googleReviewUrl);
+                router.reload({ only: ["profile"] });
+            }
+        } catch (err) {
+            console.error("Save profile error:", err);
+        } finally {
+            setProfileSaving(false);
+        }
     };
 
     const handleImageChange = (e) => {
@@ -1198,6 +1231,70 @@ export default function WhatsAppHub({
                             </div>
                         </div>
 
+                        {/* Top Card: Merchant UPI & Google Review Configuration */}
+                        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                        <IndianRupee size={16} color="var(--success)" /> Merchant UPI &amp; Google Review Configuration
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                                        Configure your UPI ID and Google Review URL to easily include payment and review links in your broadcast campaigns and invoices.
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={handleSaveProfile}
+                                    disabled={profileSaving}
+                                    style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5 }}
+                                >
+                                    {profileSaving ? <RefreshCw size={12} className="animate-spin" /> : <Check size={13} />}
+                                    <span>{profileSaving ? "Saving..." : "Save Settings"}</span>
+                                </button>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label" style={{ fontWeight: 600 }}>
+                                        Merchant UPI ID (GPay / PhonePe / Paytm VPA)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
+                                        value={upiId}
+                                        onChange={(e) => {
+                                            setUpiId(e.target.value);
+                                            templatesForm.setData("upi_id", e.target.value);
+                                        }}
+                                    />
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, display: "block" }}>
+                                        Used by <code>&#123;payment_section&#125;</code> and <code>&#123;upi_link&#125;</code> for instant UPI collections.
+                                    </span>
+                                </div>
+
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label" style={{ fontWeight: 600 }}>
+                                        Google Review / Maps Link
+                                    </label>
+                                    <input
+                                        type="url"
+                                        className="form-input"
+                                        placeholder="e.g. https://g.page/r/your-shop/review"
+                                        value={googleReviewUrl}
+                                        onChange={(e) => {
+                                            setGoogleReviewUrl(e.target.value);
+                                            templatesForm.setData("google_review_url", e.target.value);
+                                        }}
+                                    />
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, display: "block" }}>
+                                        Used by <code>&#123;review_section&#125;</code> and <code>&#123;google_review_link&#125;</code> to get 5-star Google ratings.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Campaign Launcher Form */}
                         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 18, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 14 }}>
                             <div style={{ borderBottom: "1px solid var(--border-light)", paddingBottom: 10 }}>
@@ -1419,6 +1516,10 @@ export default function WhatsAppHub({
                                             { tag: "{shop_name}", label: "Shop Name" },
                                             { tag: "{greeting}", label: "Random Greeting" },
                                             { tag: "{balance_due}", label: "Pending Balance" },
+                                            { tag: "{payment_section}", label: "UPI Pay Link" },
+                                            { tag: "{review_section}", label: "Google Review Link" },
+                                            { tag: "{upi_link}", label: "Raw UPI URL" },
+                                            { tag: "{google_review_link}", label: "Raw Review URL" },
                                         ].map((t) => (
                                             <button
                                                 key={t.tag}

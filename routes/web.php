@@ -105,6 +105,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/whatsapp/session/logout', [\App\Http\Controllers\WhatsAppController::class, 'logoutSession'])->name('whatsapp.session.logout');
     Route::post('/whatsapp/session/test', [\App\Http\Controllers\WhatsAppController::class, 'sendTest'])->name('whatsapp.session.test');
     Route::post('/whatsapp/templates', [\App\Http\Controllers\WhatsAppController::class, 'saveTemplates'])->name('whatsapp.templates.save');
+    Route::post('/whatsapp/profile', [\App\Http\Controllers\WhatsAppController::class, 'saveProfile'])->name('whatsapp.profile.save');
     Route::post('/whatsapp/broadcasts', [\App\Http\Controllers\WhatsAppController::class, 'createBroadcast'])->name('whatsapp.broadcasts.create');
     Route::post('/whatsapp/broadcasts/{id}/pause', [\App\Http\Controllers\WhatsAppController::class, 'pauseBroadcast'])->name('whatsapp.broadcasts.pause');
     Route::post('/whatsapp/broadcasts/{id}/resume', [\App\Http\Controllers\WhatsAppController::class, 'resumeBroadcast'])->name('whatsapp.broadcasts.resume');

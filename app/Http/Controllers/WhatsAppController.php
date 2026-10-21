@@ -227,6 +227,43 @@ class WhatsAppController extends Controller
     }
 
     /**
+     * Save Merchant UPI & Google Review settings
+     */
+    public function saveProfile(Request $request)
+    {
+        $ownerId = $this->getOwnerId();
+
+        $request->validate([
+            'upi_id' => 'nullable|string|max:100',
+            'google_review_url' => 'nullable|url|max:500',
+            'business_name' => 'nullable|string|max:150',
+        ]);
+
+        $profile = BusinessProfile::updateOrCreate(
+            ['user_id' => $ownerId],
+            [
+                'business_name' => $request->input('business_name') ?: (auth()->user()?->name ?? 'Store'),
+                'upi_id' => $request->input('upi_id'),
+                'google_review_url' => $request->input('google_review_url'),
+            ]
+        );
+
+        if (request()->wantsJson() && !request()->header('X-Inertia')) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Merchant UPI & Google Review configuration saved successfully.',
+                'profile' => [
+                    'business_name' => $profile->business_name,
+                    'upi_id' => $profile->upi_id ?? '',
+                    'google_review_url' => $profile->google_review_url ?? '',
+                ],
+            ]);
+        }
+
+        return back()->with('success', 'Merchant UPI & Google Review configuration saved successfully.');
+    }
+
+    /**
      * Create and queue a Broadcast Campaign
      */
     public function createBroadcast(Request $request, WhatsAppService $whatsAppService)
