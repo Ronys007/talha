@@ -828,14 +828,18 @@ class WhatsAppService
     }
 
     /**
-     * Calculate remaining broadcast quota for the current merchant in the last 24h
+     * Calculate remaining broadcast quota for the current merchant for today (resets daily at midnight)
      */
     public function getRemainingDailyBroadcastQuota(?int $merchantId = null): int
     {
         $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
+        
+        // Reset daily at midnight (12:00 AM) in Indian Standard Time (Asia/Kolkata)
+        $startOfToday = now('Asia/Kolkata')->startOfDay()->setTimezone('UTC');
+
         $sentToday = WhatsappMessageLog::where('user_id', $ownerId)
             ->where('trigger_type', 'broadcast')
-            ->where('created_at', '>=', now()->subHours(24))
+            ->where('created_at', '>=', $startOfToday)
             ->whereIn('status', ['sent', 'fallback_link'])
             ->count();
 
