@@ -485,4 +485,25 @@ class WhatsAppController extends Controller
 
         return back()->with('error', "WhatsApp failed: " . ($result['error'] ?? 'Please check WhatsApp Hub.'));
     }
+
+    /**
+     * Recall a previously sent message (Delete for Everyone)
+     */
+    public function recallMessage($id, WhatsAppService $whatsAppService)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $log = WhatsappMessageLog::whereIn('user_id', $ownerIds)->where('id', $id)->firstOrFail();
+
+        $result = $whatsAppService->recallMessage($log);
+
+        if (request()->wantsJson() || request()->ajax()) {
+            return response()->json($result);
+        }
+
+        if ($result['success'] ?? false) {
+            return back()->with('success', $result['message'] ?? 'Message recalled from WhatsApp (Delete for Everyone).');
+        }
+
+        return back()->with('error', $result['error'] ?? 'Failed to recall message from WhatsApp.');
+    }
 }

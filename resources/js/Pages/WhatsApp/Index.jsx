@@ -70,6 +70,7 @@ export default function WhatsAppHub({
     const [selectedTemplateTab, setSelectedTemplateTab] = useState("bill_created");
     const [logSearch, setLogSearch] = useState("");
     const [logStatusFilter, setLogStatusFilter] = useState("all");
+    const [recallingId, setRecallingId] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const fileInputRef = useRef(null);
 
@@ -265,6 +266,18 @@ export default function WhatsAppHub({
                 setPhone(null);
                 setQrCode(null);
             },
+        });
+    };
+
+    const handleRecallMessage = (log) => {
+        if (!confirm(`Recall this message sent to ${log.recipient_name || log.recipient_phone}?\n\nThis will trigger "Delete for Everyone" on WhatsApp so the recipient cannot view it.`)) {
+            return;
+        }
+
+        setRecallingId(log.id);
+        router.post(`/whatsapp/messages/${log.id}/recall`, {}, {
+            preserveScroll: true,
+            onFinish: () => setRecallingId(null),
         });
     };
 
@@ -1640,6 +1653,7 @@ export default function WhatsAppHub({
                                 {[
                                     { id: "all", label: "All Logs" },
                                     { id: "sent", label: "Delivered" },
+                                    { id: "recalled", label: "Recalled" },
                                     { id: "fallback_link", label: "Fallback Link" },
                                     { id: "failed", label: "Failed" },
                                 ].map((st) => (
@@ -1704,6 +1718,10 @@ export default function WhatsAppHub({
                                                         <span style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid #a7f3d0", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                                                             Delivered
                                                         </span>
+                                                    ) : l.status === "recalled" ? (
+                                                        <span style={{ background: "rgba(107, 114, 128, 0.15)", color: "#4b5563", border: "1px solid #d1d5db", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                                            <RotateCcw size={10} /> Recalled
+                                                        </span>
                                                     ) : l.status === "fallback_link" ? (
                                                         <span style={{ background: "var(--warning-bg)", color: "var(--warning)", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                                                             1-Click Link
@@ -1715,7 +1733,13 @@ export default function WhatsAppHub({
                                                     )}
                                                 </td>
                                                 <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11.5, color: "var(--text-secondary)" }}>
-                                                    {l.message}
+                                                    {l.status === "recalled" ? (
+                                                        <span style={{ fontStyle: "italic", color: "var(--text-muted)", textDecoration: "line-through" }}>
+                                                            {l.message}
+                                                        </span>
+                                                    ) : (
+                                                        l.message
+                                                    )}
                                                 </td>
                                                 <td style={{ fontSize: 11.5, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                                                     {new Date(l.created_at).toLocaleString("en-IN", {
@@ -1725,21 +1749,43 @@ export default function WhatsAppHub({
                                                         minute: "2-digit",
                                                     })}
                                                 </td>
-                                                <td style={{ textAlign: "right" }}>
-                                                    {l.wa_me_url ? (
-                                                        <a
-                                                            href={l.wa_me_url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="btn btn-secondary btn-sm"
-                                                            style={{ fontSize: 11 }}
-                                                        >
-                                                            <span>wa.me</span>
-                                                            <ExternalLink size={11} />
-                                                        </a>
-                                                    ) : (
-                                                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>-</span>
-                                                    )}
+                                                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                                                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                                                        {l.status === "sent" && l.message_id && (
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-danger btn-sm"
+                                                                onClick={() => handleRecallMessage(l)}
+                                                                disabled={recallingId === l.id}
+                                                                title="Recall message (Delete for Everyone on WhatsApp)"
+                                                                style={{ fontSize: 11, padding: "2px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                                                            >
+                                                                {recallingId === l.id ? (
+                                                                    <RefreshCw size={11} className="animate-spin" />
+                                                                ) : (
+                                                                    <RotateCcw size={11} />
+                                                                )}
+                                                                <span>Recall</span>
+                                                            </button>
+                                                        )}
+                                                        {l.wa_me_url && (
+                                                            <a
+                                                                href={l.wa_me_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="btn btn-secondary btn-sm"
+                                                                style={{ fontSize: 11, padding: "2px 8px" }}
+                                                            >
+                                                                <span>wa.me</span>
+                                                                <ExternalLink size={11} />
+                                                            </a>
+                                                        )}
+                                                        {!l.wa_me_url && (!l.message_id || l.status !== "sent") && (
+                                                            <span style={{ color: "var(--text-muted)", fontSize: 11.5 }}>
+                                                                {l.status === "recalled" ? "Deleted" : "-"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))

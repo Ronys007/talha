@@ -113,6 +113,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/whatsapp/send-invoice/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendInvoiceNotification'])->name('whatsapp.send.invoice');
     Route::post('/whatsapp/send-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPaymentReminder'])->name('whatsapp.send.reminder');
     Route::post('/whatsapp/send-purchase-reminder/{id}', [\App\Http\Controllers\WhatsAppController::class, 'sendPurchaseReminder'])->name('whatsapp.send.purchase-reminder');
+    Route::post('/whatsapp/messages/{id}/recall', [\App\Http\Controllers\WhatsAppController::class, 'recallMessage'])->name('whatsapp.messages.recall');
 });
 
 // Quick Cache Clear & Diagnostics Route for Shared Hosting (Publicly accessible to easily fix cached config)

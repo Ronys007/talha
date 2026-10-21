@@ -452,6 +452,63 @@ app.post('/sessions/:id/send-message', async (req, res) => {
 });
 
 /**
+ * POST /sessions/:id/recall-message
+ * Recalls / deletes a previously sent message for everyone on WhatsApp.
+ */
+app.post('/sessions/:id/recall-message', async (req, res) => {
+    const sessionId = req.params.id;
+    const { phone, messageId } = req.body;
+
+    if (!phone || !messageId) {
+        return res.status(422).json({
+            success: false,
+            error: 'Both recipient phone and messageId are required to recall a message'
+        });
+    }
+
+    const session = sessions.get(sessionId);
+    if (!session || session.status !== 'connected' || !session.sock) {
+        return res.status(503).json({
+            success: false,
+            error: 'WhatsApp session is not connected',
+            status: session?.status || 'disconnected'
+        });
+    }
+
+    const jid = formatWhatsAppJid(phone);
+    if (!jid) {
+        return res.status(422).json({ success: false, error: 'Invalid phone number format' });
+    }
+
+    try {
+        const key = {
+            remoteJid: jid,
+            fromMe: true,
+            id: messageId,
+        };
+
+        const recallResult = await session.sock.sendMessage(jid, { delete: key });
+        session.lastActive = new Date().toISOString();
+
+        logger.info({ sessionId, jid, messageId }, 'WhatsApp message recalled successfully (Delete for Everyone)');
+
+        return res.json({
+            success: true,
+            sessionId,
+            messageId,
+            to: jid,
+            recallResult
+        });
+    } catch (err) {
+        logger.error({ sessionId, jid, messageId, err: err.message }, 'Failed to recall WhatsApp message');
+        return res.status(500).json({
+            success: false,
+            error: err.message || 'Failed to recall message on WhatsApp'
+        });
+    }
+});
+
+/**
  * DELETE /sessions/:id/logout
  * Disconnects socket and clears the session folder.
  */

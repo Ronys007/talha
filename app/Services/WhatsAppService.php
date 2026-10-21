@@ -291,6 +291,7 @@ class WhatsAppService
                 ]);
 
                 if ($response->successful() && ($response->json()['success'] ?? false)) {
+                    $messageId = $response->json()['messageId'] ?? null;
                     $log = WhatsappMessageLog::create([
                         'user_id' => $ownerId,
                         'trigger_type' => $triggerType,
@@ -300,6 +301,7 @@ class WhatsAppService
                         'recipient_phone' => $storedPhone,
                         'message' => $message,
                         'status' => 'sent',
+                        'message_id' => $messageId,
                         'wa_me_url' => $waMeUrl,
                         'sent_at' => now(),
                     ]);
@@ -308,7 +310,7 @@ class WhatsAppService
                         'success' => true,
                         'mode' => 'automated',
                         'status' => 'sent',
-                        'messageId' => $response->json()['messageId'] ?? null,
+                        'messageId' => $messageId,
                         'wa_me_url' => $waMeUrl,
                         'log_id' => $log->id,
                     ];
@@ -409,6 +411,7 @@ class WhatsAppService
                 ])->timeout(20)->post("{$this->sidecarUrl}/sessions/{$sessionId}/send-message", $payload);
 
                 if ($response->successful() && ($response->json()['success'] ?? false)) {
+                    $messageId = $response->json()['messageId'] ?? null;
                     $log = WhatsappMessageLog::create([
                         'user_id' => $ownerId,
                         'trigger_type' => $triggerType,
@@ -418,6 +421,7 @@ class WhatsAppService
                         'recipient_phone' => $storedPhone,
                         'message' => $caption . " [Attached: {$fileName}]",
                         'status' => 'sent',
+                        'message_id' => $messageId,
                         'wa_me_url' => $waMeUrl,
                         'sent_at' => now(),
                     ]);
@@ -426,7 +430,7 @@ class WhatsAppService
                         'success' => true,
                         'mode' => 'automated',
                         'status' => 'sent',
-                        'messageId' => $response->json()['messageId'] ?? null,
+                        'messageId' => $messageId,
                         'wa_me_url' => $waMeUrl,
                         'log_id' => $log->id,
                     ];
@@ -871,6 +875,62 @@ class WhatsAppService
                 recipientName: $msgData['user_name'],
                 purchaseOrderId: $order->id
             );
+        }
+    }
+
+    /**
+     * Recall a previously sent WhatsApp message (Delete for Everyone)
+     */
+    public function recallMessage(WhatsappMessageLog $log): array
+    {
+        if (empty($log->message_id)) {
+            return [
+                'success' => false,
+                'error' => 'This message cannot be recalled because no WhatsApp message ID was recorded (or it was sent via wa.me link).',
+            ];
+        }
+
+        if ($log->status === 'recalled') {
+            return [
+                'success' => true,
+                'message' => 'This message has already been recalled.',
+            ];
+        }
+
+        $sessionId = $this->getSessionId($log->user_id);
+        $formattedPhone = $this->formatPhoneNumber($log->recipient_phone);
+
+        try {
+            $response = Http::withHeaders([
+                'X-Whatsapp-Secret' => $this->secret,
+            ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$sessionId}/recall-message", [
+                'phone' => $formattedPhone,
+                'messageId' => $log->message_id,
+            ]);
+
+            if ($response->successful() && ($response->json()['success'] ?? false)) {
+                $log->update([
+                    'status' => 'recalled',
+                    'recalled_at' => now(),
+                ]);
+
+                return [
+                    'success' => true,
+                    'message' => 'Message successfully recalled (Deleted for Everyone) on WhatsApp.',
+                ];
+            }
+
+            $errMsg = $response->json('error') ?? "Sidecar returned HTTP " . $response->status();
+            return [
+                'success' => false,
+                'error' => $errMsg,
+            ];
+        } catch (\Throwable $e) {
+            Log::error("Failed to recall WhatsApp message #{$log->id}: " . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Unable to connect to WhatsApp sidecar: ' . $e->getMessage(),
+            ];
         }
     }
 

@@ -18,13 +18,16 @@ class WhatsappMessageLog extends Model
         'recipient_phone',
         'message',
         'status',
+        'message_id',
         'wa_me_url',
         'error_message',
         'sent_at',
+        'recalled_at',
     ];
 
     protected $casts = [
         'sent_at' => 'datetime',
+        'recalled_at' => 'datetime',
     ];
 
     public function user()
