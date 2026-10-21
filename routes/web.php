@@ -137,11 +137,24 @@ Route::get('/clear-cache', function () {
     $envSidecarUrl = env('WHATSAPP_SIDECAR_URL');
     $sidecarUrl = config('services.whatsapp.sidecar_url') ?: $envSidecarUrl;
 
+    // Check DomPDF status
+    $dompdfClassExists = class_exists('\Barryvdh\DomPDF\Facade\Pdf');
+    $pdfStatus = 'Not installed (run: composer require barryvdh/laravel-dompdf)';
+    if ($dompdfClassExists) {
+        try {
+            $testPdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML('<p>Invoice Test</p>')->output();
+            $pdfStatus = 'Ready (' . strlen($testPdf) . ' bytes generated)';
+        } catch (\Throwable $pdfErr) {
+            $pdfStatus = 'Error generating PDF: ' . $pdfErr->getMessage();
+        }
+    }
+
     return response()->json([
         'status' => 'success',
         'message' => 'Cache files removed and config refreshed successfully!',
         'env_sidecar_url' => $envSidecarUrl,
         'active_sidecar_url' => $sidecarUrl,
+        'pdf_generator_status' => $pdfStatus,
         'hint' => ($sidecarUrl === 'http://127.0.0.1:3001' || empty($sidecarUrl))
             ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://your-app.koyeb.app) and re-open this link.'
             : 'Sidecar URL configured successfully!'
