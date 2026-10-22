@@ -138,6 +138,28 @@ Route::get('/clear-cache', function () {
 
     $envSidecarUrl = env('WHATSAPP_SIDECAR_URL');
     $sidecarUrl = config('services.whatsapp.sidecar_url') ?: $envSidecarUrl;
+    $sidecarUrl = rtrim($sidecarUrl ?: 'http://127.0.0.1:3001', '/');
+
+    // Auto-normalize remote host to https
+    $isLocal = in_array(parse_url($sidecarUrl, PHP_URL_HOST), ['localhost', '127.0.0.1', '::1', '0.0.0.0', '']);
+    if (!$isLocal && str_starts_with($sidecarUrl, 'http://')) {
+        $sidecarUrl = 'https://' . substr($sidecarUrl, 7);
+    }
+
+    // Live ping sidecar
+    $sidecarHealth = 'Untested';
+    if (!empty($sidecarUrl)) {
+        try {
+            $resp = \Illuminate\Support\Facades\Http::timeout(3)->get("{$sidecarUrl}/health");
+            if ($resp->successful()) {
+                $sidecarHealth = 'Online & Ready (' . $resp->json('service', 'ok') . ')';
+            } else {
+                $sidecarHealth = 'Returned HTTP ' . $resp->status();
+            }
+        } catch (\Throwable $hErr) {
+            $sidecarHealth = 'Unreachable (' . $hErr->getMessage() . ')';
+        }
+    }
 
     // Check DomPDF status
     $dompdfClassExists = class_exists('\Barryvdh\DomPDF\Facade\Pdf');
@@ -156,10 +178,11 @@ Route::get('/clear-cache', function () {
         'message' => 'Cache files removed and config refreshed successfully!',
         'env_sidecar_url' => $envSidecarUrl,
         'active_sidecar_url' => $sidecarUrl,
+        'sidecar_health' => $sidecarHealth,
         'pdf_generator_status' => $pdfStatus,
         'hint' => ($sidecarUrl === 'http://127.0.0.1:3001' || empty($sidecarUrl))
-            ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://your-app.koyeb.app) and re-open this link.'
-            : 'Sidecar URL configured successfully!'
+            ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://aquamarine-horse-881573.hostingersite.com) and re-open this link.'
+            : 'Sidecar URL configured and auto-secured with HTTPS!'
     ]);
 });
 

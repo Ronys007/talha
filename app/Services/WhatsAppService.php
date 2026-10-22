@@ -25,6 +25,13 @@ class WhatsAppService
         }
         $this->sidecarUrl = rtrim($url ?: 'http://127.0.0.1:3001', '/');
 
+        // Automatically upgrade remote HTTP URLs to HTTPS
+        // Remote hosts (Hostinger, Cloudflare, Koyeb, Render) always enforce SSL and redirect HTTP to HTTPS with 301,
+        // which causes cURL/Guzzle to drop POST bodies or convert POST to GET, resulting in 404s.
+        if (!$this->isLocalSidecar() && str_starts_with($this->sidecarUrl, 'http://')) {
+            $this->sidecarUrl = 'https://' . substr($this->sidecarUrl, 7);
+        }
+
         $secret = config('services.whatsapp.secret');
         if (empty($secret) || $secret === 'vama_secret_change_me_in_prod') {
             $secret = env('WHATSAPP_SIDECAR_SECRET') ?: $secret;

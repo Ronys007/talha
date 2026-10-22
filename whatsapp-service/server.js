@@ -306,10 +306,10 @@ app.get('/sessions/:id/status', async (req, res) => {
 });
 
 /**
- * POST /sessions/:id/connect
+ * POST or GET /sessions/:id/connect
  * Initializes Baileys socket and generates fresh QR code.
  */
-app.post('/sessions/:id/connect', async (req, res) => {
+app.all('/sessions/:id/connect', async (req, res) => {
     const sessionId = req.params.id;
     try {
         let session = sessions.get(sessionId);
