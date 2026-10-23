@@ -19,6 +19,7 @@ import {
 import { useMode } from "@/Context/ModeContext";
 import axios from "axios";
 import TableActionDropdown, { ActionItem } from "@/Components/TableActionDropdown";
+import DataImportModal from "@/Components/DataImportModal";
 
 // ─── API ────────────────────────────────────────────────────────────────────
 async function fetchInventory({ pageParam = null, queryKey }) {
@@ -708,6 +709,7 @@ export default function InventoryIndex() {
     const [editItem, setEditItem] = useState(null);
     const [deleteItem, setDeleteItem] = useState(null);
     const [barcodeModalItem, setBarcodeModalItem] = useState(null);
+    const [importModalOpen, setImportModalOpen] = useState(false);
     const loadMoreRef = useRef(null);
 
     useEffect(() => {
@@ -818,12 +820,21 @@ export default function InventoryIndex() {
                             </div>
                         )}
                     </div>
-                    <button
-                        className="btn btn-primary"
-                        onClick={() => { setEditItem(null); setDrawerOpen(true); }}
-                    >
-                        <Plus size={15} /> Add {isBarcode ? "Barcode " : ""}Item
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => setImportModalOpen(true)}
+                            title="Import items from Zoho Books, Vyapar, MyBillBook, Excel or CSV"
+                        >
+                            <Upload size={15} /> Import Items
+                        </button>
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => { setEditItem(null); setDrawerOpen(true); }}
+                        >
+                            <Plus size={15} /> Add {isBarcode ? "Barcode " : ""}Item
+                        </button>
+                    </div>
                 </div>
 
                 {/* Table */}
@@ -993,6 +1004,16 @@ export default function InventoryIndex() {
                     onConfirm={handleDelete}
                 />
             )}
+
+            <DataImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                type="inventory"
+                mode={mode}
+                onSuccess={() => {
+                    invalidate();
+                }}
+            />
         </AppLayout>
     );
 }

@@ -42,19 +42,36 @@ class WhatsAppService
     }
 
     /**
+     * Resolve effective store owner ID from a given user ID or the current user.
+     */
+    public function resolveOwnerId(?int $userId = null): int
+    {
+        if ($userId !== null && $userId > 0) {
+            $u = User::find($userId);
+            if ($u && method_exists($u, 'getEffectiveOwnerId')) {
+                return (int) $u->getEffectiveOwnerId();
+            }
+            return $userId;
+        }
+
+        $user = auth()->user();
+        if ($user && method_exists($user, 'getEffectiveOwnerId')) {
+            $ownerId = (int) $user->getEffectiveOwnerId();
+            if ($ownerId > 0) {
+                return $ownerId;
+            }
+        }
+
+        return (int) (auth()->id() ?? 1);
+    }
+
+    /**
      * Resolve session identifier for a merchant
      */
     public function getSessionId(?int $merchantId = null): string
     {
-        if ($merchantId === null) {
-            $user = auth()->user();
-            if ($user && method_exists($user, 'getEffectiveOwnerId')) {
-                $merchantId = (int) $user->getEffectiveOwnerId();
-            } else {
-                $merchantId = (int) (auth()->id() ?? 1);
-            }
-        }
-        return "merchant_{$merchantId}";
+        $ownerId = $this->resolveOwnerId($merchantId);
+        return "merchant_{$ownerId}";
     }
 
     /**
@@ -280,12 +297,12 @@ class WhatsAppService
     ): array {
         $formattedPhone = $this->formatPhoneNumber($phone);
         $storedPhone = preg_replace('/\D+/', '', $phone) ?: $formattedPhone;
-        $sessionId = $this->getSessionId($merchantId);
-        $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
+        $ownerId = $this->resolveOwnerId($merchantId);
+        $sessionId = $this->getSessionId($ownerId);
         $waMeUrl = $this->generateWaMeFallbackUrl($formattedPhone, $message);
 
         // Attempt automated delivery via sidecar
-        $status = $this->getSessionStatus($merchantId);
+        $status = $this->getSessionStatus($ownerId);
         $isSidecarConnected = ($status['success'] && ($status['status'] ?? '') === 'connected');
 
         if ($isSidecarConnected) {
@@ -371,11 +388,11 @@ class WhatsAppService
     ): array {
         $formattedPhone = $this->formatPhoneNumber($phone);
         $storedPhone = preg_replace('/\D+/', '', $phone) ?: $formattedPhone;
-        $sessionId = $this->getSessionId($merchantId);
-        $ownerId = $merchantId ?? (auth()->user()?->getEffectiveOwnerId() ?? auth()->id() ?? 1);
+        $ownerId = $this->resolveOwnerId($merchantId);
+        $sessionId = $this->getSessionId($ownerId);
         $waMeUrl = $this->generateWaMeFallbackUrl($formattedPhone, $caption);
 
-        $status = $this->getSessionStatus($merchantId);
+        $status = $this->getSessionStatus($ownerId);
         if ($status['success'] && ($status['status'] ?? '') === 'connected') {
             try {
                 $lower = strtolower($fileName);
@@ -560,7 +577,8 @@ class WhatsAppService
     public function generateInvoicePdf(Invoice $invoice): string
     {
         $invoice->loadMissing(['items']);
-        $businessProfile = BusinessProfile::where('user_id', $invoice->user_id)->first();
+        $ownerId = $this->resolveOwnerId($invoice->user_id);
+        $businessProfile = BusinessProfile::where('user_id', $ownerId)->first();
 
         /** @var \Barryvdh\DomPDF\PDF $pdf */
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('invoices.pdf', [
@@ -584,6 +602,8 @@ class WhatsAppService
             ];
         }
 
+        $ownerId = $this->resolveOwnerId($invoice->user_id);
+
         // Automatic smart template selection based on payment status
         $resolvedTrigger = $triggerType;
         if ($triggerType === 'bill_created') {
@@ -598,7 +618,7 @@ class WhatsAppService
             }
         }
 
-        $template = $this->getTemplate($invoice->user_id, $resolvedTrigger);
+        $template = $this->getTemplate($ownerId, $resolvedTrigger);
         $msgData = $this->buildInvoiceMessageData($invoice);
         $caption = $this->renderTemplate($template->message, $msgData);
         $fileName = "Invoice_{$invoice->invoice_number}.pdf";
@@ -613,7 +633,7 @@ class WhatsAppService
                 fileUrlOrBase64: $base64Pdf,
                 fileName: $fileName,
                 caption: $caption,
-                merchantId: $invoice->user_id,
+                merchantId: $ownerId,
                 triggerType: $logTriggerType,
                 invoiceId: $invoice->id,
                 recipientName: $invoice->customer_name
@@ -624,7 +644,7 @@ class WhatsAppService
             return $this->sendText(
                 phone: $invoice->customer_phone,
                 message: $caption,
-                merchantId: $invoice->user_id,
+                merchantId: $ownerId,
                 triggerType: $logTriggerType,
                 invoiceId: $invoice->id,
                 recipientName: $invoice->customer_name
@@ -663,7 +683,12 @@ class WhatsAppService
      */
     public function resolveUserPhone(int $userId): ?string
     {
-        $profile = BusinessProfile::where('user_id', $userId)->first();
+        $ownerId = $this->resolveOwnerId($userId);
+        $profile = BusinessProfile::where('user_id', $ownerId)->first();
+        if (!$profile) {
+            $storeIds = User::find($ownerId)?->getEffectiveStoreUserIds() ?? [$ownerId];
+            $profile = BusinessProfile::whereIn('user_id', $storeIds)->whereNotNull('phone')->first();
+        }
         $profilePhone = trim($profile?->phone ?? '');
 
         // Check if profile phone is a real non-dummy number
@@ -679,11 +704,11 @@ class WhatsAppService
 
         // Try getting the connected WhatsApp phone from the live sidecar session
         try {
-            $status = $this->getSessionStatus($userId);
+            $status = $this->getSessionStatus($ownerId);
             if (!empty($status['phone'])) {
                 $connectedPhone = $this->formatPhoneNumber($status['phone']);
                 // Proactively auto-sync this real phone to BusinessProfile if it was dummy or empty
-                if ($profile) {
+                if ($profile && ($isDummy || empty($profilePhone))) {
                     $profile->phone = substr($connectedPhone, -10);
                     $profile->save();
                 }
@@ -691,6 +716,24 @@ class WhatsAppService
             }
         } catch (\Throwable $e) {
             Log::warning("Could not fetch session status to resolve phone: " . $e->getMessage());
+        }
+
+        // Check user model phone
+        $user = User::find($ownerId);
+        if ($user && !empty($user->phone)) {
+            $uDigits = preg_replace('/\D+/', '', $user->phone);
+            if (strlen($uDigits) >= 10) {
+                return $this->formatPhoneNumber($uDigits);
+            }
+        }
+
+        // Check seller_phone on recent invoices
+        $recentSellerPhone = Invoice::where('user_id', $ownerId)->whereNotNull('seller_phone')->latest()->value('seller_phone');
+        if (!empty($recentSellerPhone)) {
+            $sDigits = preg_replace('/\D+/', '', $recentSellerPhone);
+            if (strlen($sDigits) >= 10 && !preg_match('/^900000000[0-9]$/', $sDigits)) {
+                return $this->formatPhoneNumber($sDigits);
+            }
         }
 
         // Fallback to profile phone if it has at least some digits
@@ -706,7 +749,7 @@ class WhatsAppService
      */
     public function buildPurchaseReminderData(PurchaseOrder $order, ?User $user = null, ?float $recordedAmount = null): array
     {
-        $ownerId = $order->user_id;
+        $ownerId = $this->resolveOwnerId($order->user_id);
         $profile = BusinessProfile::where('user_id', $ownerId)->first();
         $targetUser = $user ?: User::find($ownerId);
 
@@ -770,8 +813,9 @@ class WhatsAppService
     public function generatePurchasePdf(PurchaseOrder $order): string
     {
         $order->loadMissing(['items']);
-        $businessProfile = BusinessProfile::where('user_id', $order->user_id)->first();
-        $user = User::find($order->user_id);
+        $ownerId = $this->resolveOwnerId($order->user_id);
+        $businessProfile = BusinessProfile::where('user_id', $ownerId)->first();
+        $user = User::find($ownerId);
 
         /** @var \Barryvdh\DomPDF\PDF $pdf */
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('purchases.pdf', [
@@ -788,7 +832,7 @@ class WhatsAppService
      */
     public function sendPurchaseReminderDocument(PurchaseOrder $order, ?string $targetPhone = null): array
     {
-        $ownerId = $order->user_id;
+        $ownerId = $this->resolveOwnerId($order->user_id);
         $user = User::find($ownerId);
         $phone = $targetPhone ?: $this->resolveUserPhone($ownerId);
 
@@ -823,6 +867,16 @@ class WhatsAppService
         } catch (\Throwable $e) {
             Log::warning("Purchase PDF generation or WhatsApp sending failed for PO #{$order->id}: " . $e->getMessage());
             return $this->sendText(
+                phone: $phone,
+                message: $caption,
+                merchantId: $ownerId,
+                triggerType: 'purchase_reminder',
+                invoiceId: null,
+                recipientName: $msgData['user_name'],
+                purchaseOrderId: $order->id
+            );
+        }
+    }
                 phone: $phone,
                 message: $caption,
                 merchantId: $ownerId,

@@ -633,4 +633,225 @@ class PurchaseController extends Controller
             }
         }
     }
+
+    public function downloadTemplate()
+    {
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="purchase_import_sample.csv"',
+        ];
+
+        $callback = function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Bill Number', 'Bill Date', 'Supplier Name', 'Supplier GSTIN', 'Supplier Phone',
+                'Item Name', 'HSN SAC', 'Quantity', 'Unit', 'Rate', 'Discount %',
+                'Tax %', 'Total Amount', 'Status', 'Notes'
+            ]);
+            // Sample multi-item bill #PUR-2026-001
+            fputcsv($handle, [
+                'PUR-2026-001', '2026-10-15', 'Apex Electronics Ltd', '27AAPFU0939F1ZV', '9876543210',
+                'Wireless Keyboard & Mouse Combo', '8471', '10', 'PCS', '850.00', '5',
+                '18', '9498.75', 'Received', 'Festive stock order'
+            ]);
+            fputcsv($handle, [
+                'PUR-2026-001', '2026-10-15', 'Apex Electronics Ltd', '27AAPFU0939F1ZV', '9876543210',
+                'USB-C Fast Charging Cable 1.5m', '8471', '20', 'PCS', '120.00', '0',
+                '18', '2832.00', 'Received', ''
+            ]);
+            // Sample single-item bill #PUR-2026-002
+            fputcsv($handle, [
+                'PUR-2026-002', '2026-10-18', 'Shree Ganesh Paper Mart', '24AAACG1234D1Z2', '9123456789',
+                'Thermal Billing Paper Roll 80mm', '4811', '50', 'ROLL', '45.00', '0',
+                '12', '2520.00', 'Pending', 'Monthly billing rolls supply'
+            ]);
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    public function import(Request $request)
+    {
+        $userId = $this->getOwnerId();
+        if ($userId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please switch to an active store before importing purchase records.',
+            ], 422);
+        }
+
+        $orders = $request->input('orders', []);
+        $syncInventory = $request->boolean('sync_inventory', true);
+        $duplicateAction = $request->input('duplicate_action', 'skip'); // 'skip', 'replace', 'create_new'
+
+        if (!is_array($orders) || empty($orders)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No purchase orders or bills found to import.',
+            ], 422);
+        }
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $totalItemsCount = 0;
+        $errors = [];
+
+        DB::transaction(function () use (
+            $orders, $userId, $syncInventory, $duplicateAction,
+            &$created, &$updated, &$skipped, &$totalItemsCount, &$errors
+        ) {
+            foreach ($orders as $index => $orderData) {
+                $rowNum = $index + 1;
+                $poNumber = trim((string)($orderData['po_number'] ?? ''));
+                if ($poNumber === '') {
+                    $poNumber = 'PUR-IMP-' . date('Ymd') . '-' . str_pad((string)($index + 1), 4, '0', STR_PAD_LEFT);
+                }
+
+                $supplierName = trim((string)($orderData['supplier_name'] ?? 'Supplier'));
+                $orderDate = !empty($orderData['order_date']) ? date('Y-m-d', strtotime($orderData['order_date'])) : date('Y-m-d');
+                $status = in_array($orderData['status'] ?? '', ['Pending', 'Approved', 'Received', 'Cancelled'])
+                    ? $orderData['status']
+                    : 'Received';
+
+                $shouldSync = ($status === 'Received') && $syncInventory;
+
+                $rawItems = is_array($orderData['items'] ?? null) ? $orderData['items'] : [];
+                if (empty($rawItems)) {
+                    $rawItems = [[
+                        'description' => 'Imported Purchase Item',
+                        'quantity' => 1,
+                        'rate' => (float)($orderData['total_amount'] ?? 0),
+                        'per' => 'PCS',
+                        'amount' => (float)($orderData['total_amount'] ?? 0),
+                    ]];
+                }
+
+                $cleanedItems = [];
+                $subtotal = 0;
+                foreach ($rawItems as $it) {
+                    $desc = trim((string)($it['description'] ?? 'Item'));
+                    if ($desc === '') $desc = 'Item';
+                    $qty = max(0.001, (float)($it['quantity'] ?? 1));
+                    $rate = max(0, (float)($it['rate'] ?? 0));
+                    $disc = isset($it['discount_percent']) && is_numeric($it['discount_percent']) ? (float)$it['discount_percent'] : null;
+                    $itemAmt = $qty * $rate * (1 - (($disc ?: 0) / 100));
+
+                    $cleanedItems[] = [
+                        'description' => $desc,
+                        'hsn_sac' => !empty($it['hsn_sac']) ? trim((string)$it['hsn_sac']) : null,
+                        'quantity' => $qty,
+                        'rate' => $rate,
+                        'per' => !empty($it['per']) ? strtoupper(trim((string)$it['per'])) : 'PCS',
+                        'discount_percent' => $disc,
+                        'discount_amount' => $disc ? round($qty * $rate * ($disc / 100), 2) : null,
+                        'amount' => round($itemAmt, 2),
+                    ];
+                    $subtotal += $itemAmt;
+                }
+
+                $taxRate = max(0, (float)($orderData['tax_rate'] ?? 0));
+                $totalGst = round($subtotal * ($taxRate / 100), 2);
+                $halfGst = round($totalGst / 2, 2);
+
+                $finalTotal = !empty($orderData['total_amount']) && (float)$orderData['total_amount'] > 0
+                    ? (float)$orderData['total_amount']
+                    : round($subtotal + $totalGst, 2);
+
+                $existing = \App\Models\PurchaseOrder::whereIn('user_id', $this->getStoreUserIds())
+                    ->where('po_number', $poNumber)
+                    ->first();
+
+                if ($existing) {
+                    if ($duplicateAction === 'skip') {
+                        $skipped++;
+                        continue;
+                    }
+
+                    if ($duplicateAction === 'replace') {
+                        if ($existing->is_inventory_synced) {
+                            $this->revertOrderItemsFromInventory($existing, $userId);
+                            $existing->is_inventory_synced = false;
+                        }
+
+                        $existing->update([
+                            'supplier_name' => $supplierName,
+                            'gst_number' => !empty($orderData['gst_number']) ? strtoupper(trim($orderData['gst_number'])) : null,
+                            'supplier_phone' => !empty($orderData['supplier_phone']) ? trim($orderData['supplier_phone']) : null,
+                            'order_date' => $orderDate,
+                            'tax_rate' => $taxRate > 0 ? $taxRate : null,
+                            'subtotal' => round($subtotal, 2),
+                            'cgst' => $halfGst,
+                            'sgst' => round($totalGst - $halfGst, 2),
+                            'total_gst' => $totalGst,
+                            'total_amount' => $finalTotal,
+                            'status' => $status,
+                            'is_inventory_synced' => $shouldSync,
+                            'notes' => !empty($orderData['notes']) ? trim($orderData['notes']) : null,
+                            'due_date' => !empty($orderData['due_date']) ? date('Y-m-d', strtotime($orderData['due_date'])) : null,
+                        ]);
+
+                        $existing->items()->delete();
+                        $existing->items()->createMany($cleanedItems);
+
+                        if ($shouldSync) {
+                            $this->syncOrderItemsToInventory($existing, $userId);
+                        }
+
+                        $totalItemsCount += count($cleanedItems);
+                        $updated++;
+                        continue;
+                    }
+
+                    // duplicateAction === 'create_new'
+                    $poNumber = $poNumber . '-IMP-' . rand(100, 999);
+                }
+
+                $order = \App\Models\PurchaseOrder::create([
+                    'user_id' => $userId,
+                    'po_number' => $poNumber,
+                    'supplier_name' => $supplierName,
+                    'gst_number' => !empty($orderData['gst_number']) ? strtoupper(trim($orderData['gst_number'])) : null,
+                    'supplier_phone' => !empty($orderData['supplier_phone']) ? trim($orderData['supplier_phone']) : null,
+                    'order_date' => $orderDate,
+                    'tax_rate' => $taxRate > 0 ? $taxRate : null,
+                    'subtotal' => round($subtotal, 2),
+                    'cgst' => $halfGst,
+                    'sgst' => round($totalGst - $halfGst, 2),
+                    'total_gst' => $totalGst,
+                    'total_amount' => $finalTotal,
+                    'status' => $status,
+                    'is_inventory_synced' => $shouldSync,
+                    'notes' => !empty($orderData['notes']) ? trim($orderData['notes']) : null,
+                    'due_date' => !empty($orderData['due_date']) ? date('Y-m-d', strtotime($orderData['due_date'])) : null,
+                ]);
+
+                $order->purchase_number = 'PUR-' . str_pad((string)$order->id, 6, '0', STR_PAD_LEFT);
+                $order->save();
+
+                $order->items()->createMany($cleanedItems);
+
+                if ($shouldSync) {
+                    $this->syncOrderItemsToInventory($order, $userId);
+                }
+
+                $totalItemsCount += count($cleanedItems);
+                $created++;
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => "Purchase bills imported successfully: {$created} created, {$updated} updated, {$skipped} skipped.",
+            'summary' => [
+                'total_orders' => count($orders),
+                'created' => $created,
+                'updated' => $updated,
+                'skipped' => $skipped,
+                'total_items' => $totalItemsCount,
+                'errors' => $errors,
+            ],
+        ]);
+    }
 }

@@ -269,4 +269,147 @@ class InventoryController extends Controller
         return $this->destroy($id);
     }
 
+    public function downloadTemplate()
+    {
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="inventory_import_sample.csv"',
+        ];
+
+        $callback = function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Item Name', 'Item Code', 'Quantity', 'Unit', 'Selling Price']);
+            fputcsv($handle, ['Wireless Keyboard & Mouse Combo', 'KB-101', '25', 'PCS', '1499.00']);
+            fputcsv($handle, ['USB-C Fast Charging Cable 1.5m', 'CBL-002', '80', 'PCS', '299.00']);
+            fputcsv($handle, ['Thermal Billing Paper 80mm', 'PPR-80MM', '150', 'ROLL', '45.00']);
+            fputcsv($handle, ['Bluetooth Barcode Scanner', 'SCAN-BT01', '10', 'PCS', '2850.00']);
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    public function import(Request $request)
+    {
+        $userId = $this->getOwnerId();
+        if ($userId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please select or switch to an active store before importing inventory.',
+            ], 422);
+        }
+
+        $items = $request->input('items', []);
+        $mode = $request->input('mode', 'standard');
+        if (!in_array($mode, ['standard', 'barcode'])) {
+            $mode = 'standard';
+        }
+
+        $duplicateAction = $request->input('duplicate_action', 'update'); // 'update', 'skip', 'create_new'
+
+        if (!is_array($items) || empty($items)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No inventory items were provided to import.',
+            ], 422);
+        }
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $errors = [];
+
+        \Illuminate\Support\Facades\DB::transaction(function () use (
+            $items, $userId, $mode, $duplicateAction, &$created, &$updated, &$skipped, &$errors
+        ) {
+            foreach ($items as $index => $row) {
+                $rowNum = $index + 1;
+                $name = trim((string)($row['item'] ?? ''));
+                if ($name === '') {
+                    $errors[] = "Row #{$rowNum}: Skipped because item name is empty.";
+                    $skipped++;
+                    continue;
+                }
+
+                $qty = max(0, (float)($row['qty'] ?? 0));
+                $unit = !empty($row['unit']) ? strtoupper(trim((string)$row['unit'])) : 'PCS';
+                $price = max(0, (float)($row['selling_price'] ?? 0));
+                $code = trim((string)($row['code'] ?? ''));
+
+                // Look for existing item by name (case-insensitive) or by code
+                $existing = Inventory::where('user_id', $userId)
+                    ->where('mode', $mode)
+                    ->where(function ($q) use ($name, $code) {
+                        $q->whereRaw('LOWER(item) = LOWER(?)', [$name]);
+                        if (!empty($code)) {
+                            $q->orWhere('code', $code);
+                        }
+                    })
+                    ->first();
+
+                if ($existing) {
+                    if ($duplicateAction === 'skip') {
+                        $skipped++;
+                        continue;
+                    }
+
+                    if ($duplicateAction === 'update') {
+                        $existing->qty = (float)$existing->qty + $qty;
+                        if ($price > 0) {
+                            $existing->selling_price = $price;
+                        }
+                        if (!empty($unit)) {
+                            $existing->unit = $unit;
+                        }
+                        if (empty($existing->code) && !empty($code)) {
+                            $existing->code = $code;
+                        }
+                        $existing->save();
+                        $updated++;
+                        continue;
+                    }
+
+                    // duplicateAction === 'create_new'
+                    $uniqueName = $name;
+                    $counter = 1;
+                    while (Inventory::where('user_id', $userId)->where('mode', $mode)->whereRaw('LOWER(item) = LOWER(?)', [$uniqueName])->exists()) {
+                        $uniqueName = "{$name} (Import-{$counter})";
+                        $counter++;
+                    }
+                    $name = $uniqueName;
+                    $code = '';
+                }
+
+                // If code is empty or in use, generate a unique code
+                if (empty($code) || Inventory::where('user_id', $userId)->where('mode', $mode)->where('code', $code)->exists()) {
+                    $code = $this->generateUniqueCode($name, $userId, $mode);
+                }
+
+                Inventory::create([
+                    'user_id' => $userId,
+                    'mode' => $mode,
+                    'item' => $name,
+                    'code' => $code,
+                    'qty' => $qty,
+                    'unit' => $unit,
+                    'selling_price' => $price,
+                ]);
+
+                $created++;
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => "Inventory import finished: {$created} added, {$updated} updated, {$skipped} skipped.",
+            'summary' => [
+                'total' => count($items),
+                'created' => $created,
+                'updated' => $updated,
+                'skipped' => $skipped,
+                'errors' => $errors,
+            ],
+        ]);
+    }
+
 }

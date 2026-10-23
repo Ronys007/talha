@@ -504,10 +504,11 @@ class WhatsAppController extends Controller
         $ownerIds = $this->getStoreUserIds();
         $order = \App\Models\PurchaseOrder::whereIn('user_id', $ownerIds)->where('id', $id)->firstOrFail();
 
-        $userPhone = $whatsAppService->resolveUserPhone($order->user_id);
+        $ownerId = $whatsAppService->resolveOwnerId($order->user_id);
+        $userPhone = $whatsAppService->resolveUserPhone($ownerId);
 
         if (empty($userPhone)) {
-            return back()->with('error', 'Phone number missing. Please configure Business Profile or link WhatsApp.');
+            return back()->with('error', 'Admin phone number is missing. Please configure Business Profile or link WhatsApp in WhatsApp Hub.');
         }
 
         $result = $whatsAppService->sendPurchaseReminderDocument($order, $userPhone);

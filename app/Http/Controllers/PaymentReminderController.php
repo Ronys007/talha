@@ -282,4 +282,50 @@ class PaymentReminderController extends Controller
 
         return back()->with('success', "Invoice #{$inv->invoice_number} marked as Paid{$waNotice}.");
     }
+
+    public function sendAllDue(\App\Services\WhatsAppService $whatsAppService)
+    {
+        $ownerIds = $this->getStoreUserIds();
+        $today = \Carbon\Carbon::today();
+
+        $invoices = Invoice::whereIn('user_id', $ownerIds)
+            ->whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
+            ->whereNotNull('customer_phone')
+            ->whereRaw('TRIM(customer_phone) != ""')
+            ->whereRaw('(total_amount - COALESCE(paid_amount, 0)) > 0.01')
+            ->get();
+
+        $eligible = $invoices->filter(function ($inv) use ($today) {
+            $dueDateStr = $inv->due_date ?: $inv->invoice_date;
+            if (!$dueDateStr) return false;
+            $dueDate = \Carbon\Carbon::parse($dueDateStr)->startOfDay();
+            $diffDays = $today->diffInDays($dueDate, false);
+            return ($diffDays <= 3 && $diffDays >= -30);
+        });
+
+        if ($eligible->isEmpty()) {
+            return back()->with('info', 'No pending invoices currently due within 3 days or overdue.');
+        }
+
+        $sent = 0;
+        $failed = 0;
+        foreach ($eligible as $inv) {
+            try {
+                $res = $whatsAppService->sendInvoiceDocument($inv, 'payment_reminder');
+                if (($res['status'] ?? '') === 'sent' || ($res['mode'] ?? '') === 'automated') {
+                    $sent++;
+                } else {
+                    $failed++;
+                }
+            } catch (\Throwable $e) {
+                $failed++;
+            }
+        }
+
+        $msg = "✓ Dispatched {$sent} WhatsApp payment reminder(s).";
+        if ($failed > 0) {
+            $msg .= " ({$failed} queued/fallback)";
+        }
+        return back()->with('success', $msg);
+    }
 }

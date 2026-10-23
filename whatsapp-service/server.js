@@ -11,6 +11,7 @@ import makeWASocket, {
     useMultiFileAuthState,
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore,
+    jidNormalizedUser,
 } from '@whiskeysockets/baileys';
 
 // Top-level crash prevention: keep the sidecar running even on unhandled network drops
@@ -364,7 +365,26 @@ app.post('/sessions/:id/send-message', async (req, res) => {
         return res.status(422).json({ success: false, error: 'Either message text or document file is required' });
     }
 
-    const session = sessions.get(sessionId);
+    let session = sessions.get(sessionId);
+
+    // If session is not in memory but saved credentials exist on disk, attempt auto-reconnect
+    if (!session || session.status !== 'connected' || !session.sock) {
+        const sessionPath = path.join(SESSIONS_DIR, sessionId);
+        const credsFile = path.join(sessionPath, 'creds.json');
+        if (fs.existsSync(credsFile)) {
+            try {
+                session = await initSession(sessionId);
+                let waitAttempts = 0;
+                while (waitAttempts < 10 && session.status === 'connecting') {
+                    await new Promise(r => setTimeout(r, 500));
+                    waitAttempts++;
+                }
+            } catch (e) {
+                logger.warn({ sessionId, err: e.message }, 'Failed to on-demand reconnect session');
+            }
+        }
+    }
+
     if (!session || session.status !== 'connected' || !session.sock) {
         return res.status(503).json({
             success: false,
@@ -373,9 +393,21 @@ app.post('/sessions/:id/send-message', async (req, res) => {
         });
     }
 
-    const jid = formatWhatsAppJid(phone);
+    let jid = formatWhatsAppJid(phone);
     if (!jid) {
         return res.status(422).json({ success: false, error: 'Invalid phone number format' });
+    }
+
+    // Special routing when sending message to self (Admin self-reminders)
+    if (session.sock?.user?.id) {
+        const myJid = session.sock.user.id;
+        const myNormalized = typeof jidNormalizedUser === 'function' ? jidNormalizedUser(myJid) : myJid;
+        const myPhone = myNormalized.split('@')[0].split(':')[0];
+        const targetClean = jid.split('@')[0].split(':')[0];
+
+        if (phone === 'self' || phone === 'me' || targetClean === myPhone) {
+            jid = myNormalized;
+        }
     }
 
     try {
@@ -466,7 +498,26 @@ app.post('/sessions/:id/recall-message', async (req, res) => {
         });
     }
 
-    const session = sessions.get(sessionId);
+    let session = sessions.get(sessionId);
+
+    // If session is not in memory but saved credentials exist on disk, attempt auto-reconnect
+    if (!session || session.status !== 'connected' || !session.sock) {
+        const sessionPath = path.join(SESSIONS_DIR, sessionId);
+        const credsFile = path.join(sessionPath, 'creds.json');
+        if (fs.existsSync(credsFile)) {
+            try {
+                session = await initSession(sessionId);
+                let waitAttempts = 0;
+                while (waitAttempts < 10 && session.status === 'connecting') {
+                    await new Promise(r => setTimeout(r, 500));
+                    waitAttempts++;
+                }
+            } catch (e) {
+                logger.warn({ sessionId, err: e.message }, 'Failed to on-demand reconnect session');
+            }
+        }
+    }
+
     if (!session || session.status !== 'connected' || !session.sock) {
         return res.status(503).json({
             success: false,
@@ -475,9 +526,21 @@ app.post('/sessions/:id/recall-message', async (req, res) => {
         });
     }
 
-    const jid = formatWhatsAppJid(phone);
+    let jid = formatWhatsAppJid(phone);
     if (!jid) {
         return res.status(422).json({ success: false, error: 'Invalid phone number format' });
+    }
+
+    // Special routing when sending message to self (Admin self-reminders)
+    if (session.sock?.user?.id) {
+        const myJid = session.sock.user.id;
+        const myNormalized = typeof jidNormalizedUser === 'function' ? jidNormalizedUser(myJid) : myJid;
+        const myPhone = myNormalized.split('@')[0].split(':')[0];
+        const targetClean = jid.split('@')[0].split(':')[0];
+
+        if (phone === 'self' || phone === 'me' || targetClean === myPhone) {
+            jid = myNormalized;
+        }
     }
 
     try {

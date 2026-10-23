@@ -23,6 +23,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchase', [\App\Http\Controllers\PurchaseController::class, 'index'])->name('purchase.index');
     Route::post('/purchase/scan', [\App\Http\Controllers\PurchaseController::class, 'scan'])->name('purchase.scan');
     Route::post('/purchase', [\App\Http\Controllers\PurchaseController::class, 'store'])->name('purchase.store');
+    Route::post('/purchase/import', [\App\Http\Controllers\PurchaseController::class, 'import'])->name('purchase.import');
+    Route::get('/purchase/import/template', [\App\Http\Controllers\PurchaseController::class, 'downloadTemplate'])->name('purchase.import.template');
     Route::match(['post', 'put', 'patch'], '/purchase/{id}', [\App\Http\Controllers\PurchaseController::class, 'update'])->name('purchase.update');
     Route::delete('/purchase/{id}', [\App\Http\Controllers\PurchaseController::class, 'destroy'])->name('purchase.destroy');
     Route::patch('/purchase/{id}/status', [\App\Http\Controllers\PurchaseController::class, 'updateStatus'])->name('purchase.update-status');
@@ -47,16 +49,19 @@ Route::middleware('auth')->group(function () {
     Route::post('/sales-reminders/record-payment', [\App\Http\Controllers\PaymentReminderController::class, 'recordPayment'])->name('sales-reminders.record-payment');
     Route::post('/sales-reminders/mark-as-paid', [\App\Http\Controllers\PaymentReminderController::class, 'markAsPaid'])->name('sales-reminders.mark-as-paid');
     Route::post('/sales-reminders/update-due-date', [\App\Http\Controllers\PaymentReminderController::class, 'updateDueDate'])->name('sales-reminders.update-due-date');
+    Route::post('/sales-reminders/send-all-due', [\App\Http\Controllers\PaymentReminderController::class, 'sendAllDue'])->name('sales-reminders.send-all-due');
     Route::get('/payment-reminders', [\App\Http\Controllers\PaymentReminderController::class, 'index'])->name('reminders.index');
     Route::post('/payment-reminders/record-payment', [\App\Http\Controllers\PaymentReminderController::class, 'recordPayment'])->name('reminders.record-payment');
     Route::post('/payment-reminders/mark-as-paid', [\App\Http\Controllers\PaymentReminderController::class, 'markAsPaid'])->name('reminders.mark-as-paid');
     Route::post('/payment-reminders/update-due-date', [\App\Http\Controllers\PaymentReminderController::class, 'updateDueDate'])->name('reminders.update-due-date');
+    Route::post('/payment-reminders/send-all-due', [\App\Http\Controllers\PaymentReminderController::class, 'sendAllDue'])->name('reminders.send-all-due');
 
     // ==================== Purchase Reminders (Supplier Payment Reminders) ====================
     Route::get('/purchase-reminders', [\App\Http\Controllers\PurchaseReminderController::class, 'index'])->name('purchase-reminders.index');
     Route::post('/purchase-reminders/record-payment', [\App\Http\Controllers\PurchaseReminderController::class, 'recordPayment'])->name('purchase-reminders.record-payment');
     Route::post('/purchase-reminders/mark-as-paid', [\App\Http\Controllers\PurchaseReminderController::class, 'markAsPaid'])->name('purchase-reminders.mark-as-paid');
     Route::post('/purchase-reminders/update-due-date', [\App\Http\Controllers\PurchaseReminderController::class, 'updateDueDate'])->name('purchase-reminders.update-due-date');
+    Route::post('/purchase-reminders/send-all-due', [\App\Http\Controllers\PurchaseReminderController::class, 'sendAllDue'])->name('purchase-reminders.send-all-due');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -67,6 +72,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/scan', [\App\Http\Controllers\InvoiceController::class, 'scan'])->name('invoices.scan');
     Route::get('/invoices/search-inventory', [\App\Http\Controllers\InvoiceController::class, 'searchInventory'])->name('invoices.search-inventory');
     Route::post('/invoices', [\App\Http\Controllers\InvoiceController::class, 'store'])->name('invoices.store');
+    Route::post('/invoices/import', [\App\Http\Controllers\InvoiceController::class, 'import'])->name('invoices.import');
+    Route::get('/invoices/import/template', [\App\Http\Controllers\InvoiceController::class, 'downloadTemplate'])->name('invoices.import.template');
     Route::match(['post', 'put', 'patch'], '/invoices/{id}', [\App\Http\Controllers\InvoiceController::class, 'update'])->name('invoices.update');
     Route::delete('/invoices/{id}', [\App\Http\Controllers\InvoiceController::class, 'destroy'])->name('invoices.destroy');
     Route::delete('/customers/{id}', [\App\Http\Controllers\InvoiceController::class, 'destroyCustomer'])->name('customers.destroy');
@@ -79,6 +86,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/inventory/data', [InventoryController::class, 'data'])->name('inventory.data');
         Route::get('/inventory/check-name', [InventoryController::class, 'checkName'])->name('inventory.check-name');
         Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
+        Route::post('/inventory/import', [InventoryController::class, 'import'])->name('inventory.import');
+        Route::get('/inventory/import/template', [InventoryController::class, 'downloadTemplate'])->name('inventory.import.template');
         Route::match(['post', 'put', 'patch'], '/inventory/{id}', [InventoryController::class, 'update'])->name('inventory.update');
         Route::delete('/inventory/{id}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
 
@@ -183,6 +192,32 @@ Route::get('/clear-cache', function () {
         'hint' => ($sidecarUrl === 'http://127.0.0.1:3001' || empty($sidecarUrl))
             ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://aquamarine-horse-881573.hostingersite.com) and re-open this link.'
             : 'Sidecar URL configured and auto-secured with HTTPS!'
+    ]);
+});
+
+// Web Cron / Trigger Route for automated WhatsApp due payment & purchase reminders
+Route::get('/cron/send-reminders', function () {
+    $salesOutput = '';
+    $purchaseOutput = '';
+    try {
+        \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders');
+        $salesOutput = trim(\Illuminate\Support\Facades\Artisan::output());
+    } catch (\Throwable $e) {
+        $salesOutput = 'Error: ' . $e->getMessage();
+    }
+
+    try {
+        \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
+        $purchaseOutput = trim(\Illuminate\Support\Facades\Artisan::output());
+    } catch (\Throwable $e) {
+        $purchaseOutput = 'Error: ' . $e->getMessage();
+    }
+
+    return response()->json([
+        'success' => true,
+        'timestamp' => now()->toIso8601String(),
+        'sales_reminders' => $salesOutput,
+        'purchase_reminders' => $purchaseOutput,
     ]);
 });
 

@@ -34,40 +34,43 @@ class SendDuePurchaseRemindersCommand extends Command
         $today = Carbon::today();
         $isDryRun = $this->option('dry-run');
 
-        $this->info("Scanning purchase orders for automatic WhatsApp payment reminders to user (Window: 3 days left until due date, 0 <= diffInDays <= 3)...");
+        $this->info("Scanning purchase orders for automatic WhatsApp payment reminders to admin (Window: Due in <= 3 days or Overdue)...");
 
         // Find all purchase orders that:
         // 1. Are not fully paid or cancelled
         // 2. Have balance due > 0
-        // 3. Have a valid due_date
         $orders = PurchaseOrder::whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
-            ->whereNotNull('due_date')
             ->whereRaw('(total_amount - COALESCE(paid_amount, 0)) > 0.01')
             ->get();
 
         $eligibleOrders = $orders->filter(function (PurchaseOrder $order) use ($today) {
-            $dueDate = Carbon::parse($order->due_date)->startOfDay();
-            // Days remaining: 3, 2, 1, 0 (due date)
+            $dueDateStr = $order->due_date ?: ($order->order_date ?: $order->created_at);
+            if (!$dueDateStr) return false;
+
+            $dueDate = Carbon::parse($dueDateStr)->startOfDay();
+            // Days remaining: positive if future/today, negative if past (overdue)
             $diffDays = $today->diffInDays($dueDate, false);
 
-            return ($diffDays >= 0 && $diffDays <= 3);
+            return ($diffDays <= 3 && $diffDays >= -30);
         });
 
-        $this->info("Found {$eligibleOrders->count()} purchase orders within the 3-day due reminder window.");
+        $this->info("Found {$eligibleOrders->count()} purchase orders within the due/overdue reminder window.");
 
         $sentCount = 0;
         $skippedCount = 0;
 
         foreach ($eligibleOrders as $order) {
-            $dueDate = Carbon::parse($order->due_date)->startOfDay();
-            $daysLeft = $today->diffInDays($dueDate, false);
+            $dueDateStr = $order->due_date ?: ($order->order_date ?: $order->created_at);
+            $dueDate = Carbon::parse($dueDateStr)->startOfDay();
+            $diffDays = $today->diffInDays($dueDate, false);
             $billNo = $order->po_number ?: ($order->purchase_number ?: "PO-{$order->id}");
 
-            // Find merchant user phone number using resolveUserPhone
-            $userPhone = $whatsAppService->resolveUserPhone($order->user_id);
+            // Find merchant user phone number using resolved owner ID
+            $ownerId = $whatsAppService->resolveOwnerId($order->user_id);
+            $userPhone = $whatsAppService->resolveUserPhone($ownerId);
 
             if (empty($userPhone)) {
-                $this->warn("Skipping PO #{$billNo} - Merchant (User ID {$order->user_id}) does not have a configured phone or connected WhatsApp session.");
+                $this->warn("Skipping PO #{$billNo} - Merchant (User ID {$ownerId}) does not have a configured phone or connected WhatsApp session.");
                 $skippedCount++;
                 continue;
             }
@@ -85,7 +88,8 @@ class SendDuePurchaseRemindersCommand extends Command
                 continue;
             }
 
-            $this->info("Dispatching reminder for PO #{$billNo} (Supplier: {$order->supplier_name}) to user phone {$userPhone} - {$daysLeft} day(s) left until due date ({$order->due_date->format('d M Y')}).");
+            $statusText = $diffDays > 0 ? "{$diffDays} day(s) left" : ($diffDays === 0 ? "due TODAY" : abs($diffDays) . " day(s) OVERDUE");
+            $this->info("Dispatching reminder for PO #{$billNo} (Supplier: {$order->supplier_name}) to admin phone {$userPhone} - {$statusText} (Due Date: {$dueDate->format('d M Y')}).");
 
             if ($isDryRun) {
                 $sentCount++;

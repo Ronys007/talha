@@ -1,5 +1,5 @@
-import { useMemo, useState, useRef } from "react";
-import { useForm, router } from "@inertiajs/react";
+import { useMemo, useState, useRef, useEffect } from "react";
+import { useForm, router, usePage } from "@inertiajs/react";
 import AppLayout from "@/Layouts/AppLayout";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -256,12 +256,30 @@ function PrintBillReminderModal({ bill, business = {}, onClose }) {
 }
 
 export default function PaymentRemindersIndex({ bills = [], summary = {}, business = {} }) {
+    const { flash } = usePage().props;
     const [search, setSearch] = useState("");
     const [filterTab, setFilterTab] = useState("unpaid"); // 'all' | 'unpaid' | 'overdue' | 'today' | 'paid'
     const [copiedId, setCopiedId] = useState(null);
     const [updatingDueDateId, setUpdatingDueDateId] = useState(null);
     const [previewBill, setPreviewBill] = useState(null);
     const [generatingPdfId, setGeneratingPdfId] = useState(null);
+    const [sendingAllDue, setSendingAllDue] = useState(false);
+
+    // Auto-open wa.me link if fallback was triggered
+    useEffect(() => {
+        if (flash?.wa_me_url) {
+            window.open(flash.wa_me_url, "_blank");
+        }
+    }, [flash?.wa_me_url]);
+
+    function handleSendAllDueReminders() {
+        if (!confirm("Send WhatsApp payment reminders to all customers with invoices due within 3 days or overdue?")) return;
+        setSendingAllDue(true);
+        router.post("/sales-reminders/send-all-due", {}, {
+            preserveScroll: true,
+            onFinish: () => setSendingAllDue(false),
+        });
+    }
 
     // Hidden container ref for off-screen PDF capture on WhatsApp click
     const offscreenPdfRef = useRef(null);
@@ -607,19 +625,46 @@ ${bName}${phone}`;
                 {/* Toolbar & Filter Tabs */}
                 <div className="card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                        <div className="search-input-wrap" style={{ width: "100%", maxWidth: 360 }}>
-                            <Search size={16} />
-                            <input
-                                className="search-input"
-                                placeholder="Search by bill #, customer, phone..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                            {search && (
-                                <button className="btn-icon" onClick={() => setSearch("")}>
-                                    <X size={14} />
-                                </button>
-                            )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flex: 1, minWidth: 280 }}>
+                            <div className="search-input-wrap" style={{ width: "100%", maxWidth: 340 }}>
+                                <Search size={16} />
+                                <input
+                                    className="search-input"
+                                    placeholder="Search by bill #, customer, phone..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
+                                {search && (
+                                    <button className="btn-icon" onClick={() => setSearch("")}>
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                className="btn btn-sm"
+                                style={{
+                                    background: "#25D366",
+                                    borderColor: "#128C7E",
+                                    color: "#ffffff",
+                                    fontWeight: 600,
+                                    fontSize: 12,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "6px 12px",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    boxShadow: "0 2px 6px rgba(37, 211, 102, 0.25)",
+                                }}
+                                onClick={handleSendAllDueReminders}
+                                disabled={sendingAllDue}
+                                title="Send WhatsApp payment reminders with invoice PDFs to all customers due within 3 days or overdue"
+                            >
+                                {sendingAllDue ? <Loader2 size={13} className="spin" /> : <MessageCircle size={13} />}
+                                {sendingAllDue ? "Dispatching..." : "Send All Due Reminders (WhatsApp)"}
+                            </button>
                         </div>
 
                         {/* Filter Tabs */}

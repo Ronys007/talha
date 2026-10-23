@@ -34,6 +34,7 @@ import {
 import axios from "axios";
 import TableActionDropdown, { ActionItem } from "@/Components/TableActionDropdown";
 import { downloadTallyVouchers } from "@/utils/tallyExport";
+import DataImportModal from "@/Components/DataImportModal";
 
 function normalizeNumber(value) {
     if (value === null || value === undefined) return 0;
@@ -1383,6 +1384,7 @@ export default function PurchaseIndex({ auth, purchaseOrders = [], scanUsage: in
     const [editingOrder, setEditingOrder] = useState(null);
     const [deleteOrder, setDeleteOrder] = useState(null);
     const [viewingOrderDetails, setViewingOrderDetails] = useState(null);
+    const [importModalOpen, setImportModalOpen] = useState(false);
     const [toast, setToast] = useState(null);
 
     // AI Scan Quota state (100 scans per month for Admin, Unlimited for SuperAdmin)
@@ -2136,6 +2138,13 @@ export default function PurchaseIndex({ auth, purchaseOrders = [], scanUsage: in
                         </button>
                         <button
                             className="btn btn-secondary"
+                            onClick={() => setImportModalOpen(true)}
+                            title="Import purchase bills from Zoho Books, Vyapar, MyBillBook, Excel or CSV"
+                        >
+                            <UploadCloud size={15} /> Import Purchases
+                        </button>
+                        <button
+                            className="btn btn-secondary"
                             onClick={handleUploadBillClick}
                             title={!scanUsage.isSuperAdmin && scanUsage.hasReachedLimit ? `Scan limit reached (${scanUsage.limit}/${scanUsage.limit})` : "Upload invoice document to scan with AI"}
                             style={!scanUsage.isSuperAdmin && scanUsage.hasReachedLimit ? { borderColor: "rgba(239, 68, 68, 0.4)", color: "var(--danger)" } : {}}
@@ -2547,6 +2556,16 @@ export default function PurchaseIndex({ auth, purchaseOrders = [], scanUsage: in
                     }}
                 />
             )}
+
+            <DataImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                type="purchase"
+                onSuccess={() => {
+                    router.reload({ only: ['purchaseOrders'] });
+                    showToast("Purchases imported successfully!");
+                }}
+            />
             <datalist id="purchase-unit-options">
                 <option value="PCS">PCS (Pieces)</option>
                 <option value="KG">KG (Kilograms)</option>

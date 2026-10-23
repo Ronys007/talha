@@ -1,5 +1,5 @@
-import { useMemo, useState, useRef } from "react";
-import { useForm, router } from "@inertiajs/react";
+import { useMemo, useState, useRef, useEffect } from "react";
+import { useForm, router, usePage } from "@inertiajs/react";
 import AppLayout from "@/Layouts/AppLayout";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -250,6 +250,7 @@ function PrintPurchaseReminderModal({ bill, business = {}, onClose }) {
 }
 
 export default function PurchaseRemindersIndex({ bills = [], summary = {}, business = {} }) {
+    const { flash } = usePage().props;
     const [search, setSearch] = useState("");
     const [filterTab, setFilterTab] = useState("unpaid"); // 'all' | 'unpaid' | 'overdue' | 'today' | 'paid'
     const [updatingDueDateId, setUpdatingDueDateId] = useState(null);
@@ -257,6 +258,23 @@ export default function PurchaseRemindersIndex({ bills = [], summary = {}, busin
     const [previewBill, setPreviewBill] = useState(null);
     const [paymentModalBill, setPaymentModalBill] = useState(null);
     const [sendingWhatsAppId, setSendingWhatsAppId] = useState(null);
+    const [sendingAllDue, setSendingAllDue] = useState(false);
+
+    // Auto-open wa.me link if fallback was triggered
+    useEffect(() => {
+        if (flash?.wa_me_url) {
+            window.open(flash.wa_me_url, "_blank");
+        }
+    }, [flash?.wa_me_url]);
+
+    function handleSendAllDueReminders() {
+        if (!confirm("Send WhatsApp payment reminders for all supplier purchase bills due within 3 days or overdue to your WhatsApp number?")) return;
+        setSendingAllDue(true);
+        router.post("/purchase-reminders/send-all-due", {}, {
+            preserveScroll: true,
+            onFinish: () => setSendingAllDue(false),
+        });
+    }
 
     const { data, setData, post, processing, reset } = useForm({
         id: "",
@@ -547,19 +565,46 @@ Please ensure this payment is fulfilled to ${bill.supplier_name} on or before th
                 {/* Toolbar & Filter Tabs */}
                 <div className="card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                        <div className="search-input-wrap" style={{ width: "100%", maxWidth: 360 }}>
-                            <Search size={16} />
-                            <input
-                                className="search-input"
-                                placeholder="Search by PO #, supplier, phone..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                            {search && (
-                                <button className="btn-icon" onClick={() => setSearch("")}>
-                                    <X size={14} />
-                                </button>
-                            )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flex: 1, minWidth: 280 }}>
+                            <div className="search-input-wrap" style={{ width: "100%", maxWidth: 340 }}>
+                                <Search size={16} />
+                                <input
+                                    className="search-input"
+                                    placeholder="Search by PO #, supplier, phone..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
+                                {search && (
+                                    <button className="btn-icon" onClick={() => setSearch("")}>
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                className="btn btn-sm"
+                                style={{
+                                    background: "#25D366",
+                                    borderColor: "#128C7E",
+                                    color: "#ffffff",
+                                    fontWeight: 600,
+                                    fontSize: 12,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "6px 12px",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    boxShadow: "0 2px 6px rgba(37, 211, 102, 0.25)",
+                                }}
+                                onClick={handleSendAllDueReminders}
+                                disabled={sendingAllDue}
+                                title="Send WhatsApp purchase reminders with statement PDFs to your WhatsApp for all supplier bills due within 3 days or overdue"
+                            >
+                                {sendingAllDue ? <Loader2 size={13} className="spin" /> : <MessageCircle size={13} />}
+                                {sendingAllDue ? "Dispatching..." : "Send Due Reminders (To My WhatsApp)"}
+                            </button>
                         </div>
 
                         {/* Filter Tabs */}
