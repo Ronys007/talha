@@ -877,16 +877,6 @@ class WhatsAppService
             );
         }
     }
-                phone: $phone,
-                message: $caption,
-                merchantId: $ownerId,
-                triggerType: 'purchase_reminder',
-                invoiceId: null,
-                recipientName: $msgData['user_name'],
-                purchaseOrderId: $order->id
-            );
-        }
-    }
 
     /**
      * Send Purchase Payment Recorded Notification to the User itself (attached PDF statement + WhatsApp notification)

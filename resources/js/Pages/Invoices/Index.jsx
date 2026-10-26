@@ -624,62 +624,33 @@ export default function InvoicesIndex({
             {/* AI OCR Loading Dialog */}
             {ocrLoading && (
                 <div className="modal-overlay" style={{ zIndex: 99999 }}>
-                    <div style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 18,
-                        background: "var(--bg-surface, #ffffff)",
-                        padding: "36px 32px",
-                        borderRadius: 16,
-                        boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
-                        maxWidth: 420,
-                        width: "90%",
-                        textAlign: "center"
-                    }}>
-                        <div style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "6px 14px",
-                            borderRadius: 20,
-                            background: "rgba(99, 102, 241, 0.1)",
-                            color: "#6366f1",
-                            fontSize: 13,
-                            fontWeight: 700,
-                            letterSpacing: "0.5px",
-                            textTransform: "uppercase"
-                        }}>
-                            <ScanLine size={16} /> Vama Lab AI
+                    <div className="ai-scan-modal-box">
+                        <div className="ai-scan-badge">
+                            <ScanLine size={14} /> Vama Lab AI
                         </div>
 
-                        <div style={{ position: "relative", width: 84, height: 84, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div className="loading-ring" style={{ width: 84, height: 84, borderWidth: 4 }}></div>
-                            <div style={{
-                                position: "absolute",
-                                fontWeight: 800,
-                                fontSize: 18,
-                                color: "var(--text-primary)"
-                            }}>
+                        <div className="ai-scan-spinner-wrap">
+                            <div className="loading-ring ai-scan-spinner-ring"></div>
+                            <div className="ai-scan-spinner-text">
                                 {ocrProgressPercent}%
                             </div>
                         </div>
 
                         <div style={{ width: "100%" }}>
-                            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>
+                            <div className="ai-scan-title">
                                 Scanning Invoice with Vama Lab AI
                             </div>
-                            <div style={{ fontSize: 13, color: "var(--text-muted)", minHeight: 20 }}>
+                            <div className="ai-scan-status">
                                 {ocrStatusText}
                             </div>
 
                             <div style={{
                                 width: "100%",
-                                height: 8,
+                                height: 6,
                                 background: "var(--bg-elevated, #f1f5f9)",
                                 borderRadius: 999,
                                 overflow: "hidden",
-                                marginTop: 14
+                                marginTop: 10
                             }}>
                                 <div style={{
                                     width: `${ocrProgressPercent}%`,
@@ -831,6 +802,7 @@ export default function InvoicesIndex({
                         {/* Live AI Scan Counter Pill */}
                         {scanUsage.isSuperAdmin ? (
                             <div
+                                className="scan-quota-badge"
                                 title="SuperAdmin has unlimited AI invoice scanning power"
                                 style={{
                                     display: "inline-flex",
@@ -850,6 +822,7 @@ export default function InvoicesIndex({
                             </div>
                         ) : (
                             <div
+                                className="scan-quota-badge"
                                 title={`Monthly quota: ${scanUsage.limit} scans. Used: ${scanUsage.used}. Left: ${scanUsage.remaining}.`}
                                 style={{
                                     display: "inline-flex",
@@ -1073,7 +1046,7 @@ export default function InvoicesIndex({
                                         <td>
                                             <strong style={{ color: "var(--text-primary)" }}>{inv.invoice_number}</strong>
                                         </td>
-                                        <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                                        <td className="date-cell" style={{ fontSize: 11, color: "var(--text-secondary)" }}>
                                             {formatDate(inv.invoice_date)}
                                         </td>
                                         <td>
@@ -3095,12 +3068,12 @@ function InvoicePrintPreviewModal({ invoice, businessProfile = {}, onClose }) {
                         id="invoice-modal-print-sheet"
                         style={{
                             maxWidth: 820,
-                            minWidth: 700,
+                            width: "100%",
                             margin: "0 auto",
                             background: "#ffffff",
                             border: "1px solid #cbd5e1",
                             borderRadius: 4,
-                            padding: "24px 28px",
+                            padding: "clamp(14px, 2.5vw, 28px)",
                             color: "#0f172a",
                             fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                             fontSize: 12,

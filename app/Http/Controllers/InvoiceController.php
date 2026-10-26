@@ -128,7 +128,7 @@ class InvoiceController extends Controller
         }
 
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'bill_file' => 'required|file|max:25600',
+            'bill_file' => 'required|file|mimes:jpeg,jpg,png,pdf,webp|max:25600',
         ]);
 
         if ($validator->fails()) {

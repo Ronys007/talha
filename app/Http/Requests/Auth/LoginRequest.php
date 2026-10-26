@@ -47,24 +47,14 @@ class LoginRequest extends FormRequest
         $password = (string) $this->input('password');
 
         if (! Auth::attempt([$field => $login, 'password' => $password], $this->boolean('remember'))) {
-            // Fallback: match by email prefix, exact email, or name
-            $user = \App\Models\User::where('email', $login)
-                ->orWhere('name', $login)
+            // Secure case-insensitive fallback: match exact email or exact name only
+            $user = \App\Models\User::whereRaw('LOWER(email) = ?', [strtolower($login)])
                 ->orWhereRaw('LOWER(name) = ?', [strtolower($login)])
-                ->orWhereRaw('LOWER(email) = ?', [strtolower($login)])
-                ->orWhereRaw('LOWER(email) LIKE ?', [strtolower($login) . '@%'])
-                ->orWhereRaw('LOWER(name) LIKE ?', ['%' . strtolower($login) . '%'])
                 ->first();
 
             $passwordMatches = false;
-            if ($user) {
-                if (\Illuminate\Support\Facades\Hash::check($password, $user->password) ||
-                    \Illuminate\Support\Facades\Hash::check(ucfirst($password), $user->password) ||
-                    \Illuminate\Support\Facades\Hash::check(lcfirst($password), $user->password) ||
-                    \Illuminate\Support\Facades\Hash::check(strtolower($password), $user->password) ||
-                    in_array(strtolower($password), ['talha@123', 'talha123', '12345678', 'admin', 'password'])) {
-                    $passwordMatches = true;
-                }
+            if ($user && \Illuminate\Support\Facades\Hash::check($password, $user->password)) {
+                $passwordMatches = true;
             }
 
             if ($user && $passwordMatches) {
@@ -73,7 +63,7 @@ class LoginRequest extends FormRequest
                         $user->is_locked = true;
                         $user->save();
                         throw ValidationException::withMessages([
-                            'email' => 'Your trial period has expired. Please contact customer care',
+                            'email' => 'Your trial period has expired. Please contact customer care.',
                         ]);
                     }
 

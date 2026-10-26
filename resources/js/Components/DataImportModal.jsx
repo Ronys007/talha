@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
 import axios from "axios";
 import {
@@ -8,7 +8,6 @@ import {
     CheckCircle2,
     AlertCircle,
     Download,
-    HelpCircle,
     ArrowRight,
     ArrowLeft,
     Check,
@@ -17,7 +16,10 @@ import {
     FileText,
     Sparkles,
     RefreshCw,
-    ExternalLink,
+    HelpCircle,
+    CheckCheck,
+    Boxes,
+    FileCheck,
 } from "lucide-react";
 import {
     INVENTORY_FIELDS,
@@ -50,7 +52,7 @@ export default function DataImportModal({
     const [selectedPreset, setSelectedPreset] = useState("auto");
     const [detectedPresetId, setDetectedPresetId] = useState("generic");
     const [columnMapping, setColumnMapping] = useState({});
-    
+
     // Import configuration options
     const [duplicateAction, setDuplicateAction] = useState(
         type === "inventory" ? "update" : "skip"
@@ -64,6 +66,24 @@ export default function DataImportModal({
     const [errorMessage, setErrorMessage] = useState("");
 
     const fileInputRef = useRef(null);
+
+    // Lock body scroll and listen for Escape key when modal is open
+    useEffect(() => {
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape" && !importing) {
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            document.body.style.overflow = originalOverflow;
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [importing, onClose]);
 
     // Get field definition for current type
     const targetFields = useMemo(() => {
@@ -110,7 +130,7 @@ export default function DataImportModal({
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: "array" });
-                
+
                 // Get the first worksheet
                 const firstSheetName = workbook.SheetNames[0];
                 if (!firstSheetName) {
@@ -217,7 +237,6 @@ export default function DataImportModal({
             let payload = {};
 
             if (type === "inventory") {
-                // Filter out rows without item name
                 const validItems = mappedRows
                     .filter((r) => r.item && String(r.item).trim() !== "")
                     .map((r) => ({
@@ -303,180 +322,206 @@ export default function DataImportModal({
     };
 
     return (
-        <div className="modal-backdrop">
+        <div
+            className="modal-overlay import-modal-overlay"
+            onClick={!importing ? onClose : undefined}
+        >
             <div
-                className="modal-container"
-                style={{
-                    maxWidth: step === 2 ? 960 : 720,
-                    width: "95%",
-                    maxHeight: "92vh",
-                    display: "flex",
-                    flexDirection: "column",
-                }}
+                className="modal-box import-modal-box"
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="modal-header">
+                <div className="import-modal-header">
                     <div>
-                        <h2 className="modal-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <FileSpreadsheet size={20} className="text-primary" />
+                        <h2
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 9,
+                                margin: 0,
+                                fontSize: 16,
+                                fontWeight: 700,
+                                color: "var(--text-primary)",
+                            }}
+                        >
+                            <span
+                                style={{
+                                    display: "inline-flex",
+                                    padding: 6,
+                                    borderRadius: 8,
+                                    background: "rgba(79, 70, 229, 0.1)",
+                                    color: "var(--accent, #4f46e5)",
+                                }}
+                            >
+                                <FileSpreadsheet size={18} />
+                            </span>
                             {title}
                         </h2>
-                        <p style={{ margin: "3px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                            Import data effortlessly from <strong>Zoho Books</strong>, <strong>Vyapar</strong>, <strong>MyBillBook</strong>, or any Excel / CSV spreadsheet.
+                        <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--text-muted)" }}>
+                            Import data from <strong>Zoho Books</strong>, <strong>Vyapar</strong>, <strong>MyBillBook</strong>, or any Excel / CSV file.
                         </p>
                     </div>
+
                     <button
-                        className="btn-icon"
+                        type="button"
+                        className="btn btn-ghost btn-icon btn-sm"
                         onClick={onClose}
                         disabled={importing}
-                        style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                        title="Close (Esc)"
                     >
                         <X size={18} />
                     </button>
                 </div>
 
-                {/* Stepper Indicator */}
-                <div
-                    style={{
-                        padding: "10px 24px",
-                        background: "rgba(0,0,0,0.02)",
-                        borderBottom: "1px solid var(--border-color, #e2e8f0)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        fontSize: 12.5,
-                        fontWeight: 600,
-                    }}
-                >
-                    <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                        <span style={{ color: step >= 1 ? "var(--accent, #4f46e5)" : "var(--text-muted)" }}>
-                            1. Upload File
+                {/* Progress Stepper & Download Template Bar */}
+                <div className="import-modal-stepper-bar">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "3px 10px",
+                                borderRadius: 999,
+                                background: step === 1 ? "var(--accent)" : "rgba(79, 70, 229, 0.1)",
+                                color: step === 1 ? "#fff" : "var(--accent)",
+                                fontSize: 12,
+                            }}
+                        >
+                            1. Select File
                         </span>
-                        <span style={{ color: "var(--text-muted)" }}>→</span>
-                        <span style={{ color: step >= 2 ? "var(--accent, #4f46e5)" : "var(--text-muted)" }}>
-                            2. Map Columns & Preview
+                        <span style={{ color: "var(--text-muted)" }}>›</span>
+                        <span
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "3px 10px",
+                                borderRadius: 999,
+                                background: step === 2 ? "var(--accent)" : "rgba(0,0,0,0.05)",
+                                color: step === 2 ? "#fff" : "var(--text-muted)",
+                                fontSize: 12,
+                            }}
+                        >
+                            2. Map Columns
                         </span>
-                        <span style={{ color: "var(--text-muted)" }}>→</span>
-                        <span style={{ color: step === 3 ? "var(--accent, #4f46e5)" : "var(--text-muted)" }}>
-                            3. Import Complete
+                        <span style={{ color: "var(--text-muted)" }}>›</span>
+                        <span
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "3px 10px",
+                                borderRadius: 999,
+                                background: step === 3 ? "var(--accent)" : "rgba(0,0,0,0.05)",
+                                color: step === 3 ? "#fff" : "var(--text-muted)",
+                                fontSize: 12,
+                            }}
+                        >
+                            3. Complete
                         </span>
                     </div>
 
                     <a
                         href={templateEndpoint}
                         download
+                        className="btn btn-secondary btn-sm"
                         style={{
                             display: "inline-flex",
                             alignItems: "center",
                             gap: 5,
-                            color: "var(--accent, #4f46e5)",
                             textDecoration: "none",
                             fontSize: 12,
+                            padding: "4px 10px",
                         }}
-                        title="Download standard template with sample rows"
+                        title="Download sample template with example headers and rows"
                     >
-                        <Download size={13} />
-                        Download Sample Template (CSV)
+                        <Download size={13} /> Download Sample CSV
                     </a>
                 </div>
 
-                {/* Error Banner */}
+                {/* Error Alert Box */}
                 {errorMessage && (
                     <div
                         style={{
-                            margin: "12px 24px 0",
+                            margin: "14px 24px 0",
                             padding: "10px 14px",
-                            borderRadius: 8,
-                            background: "rgba(239, 68, 68, 0.1)",
-                            border: "1px solid rgba(239, 68, 68, 0.25)",
-                            color: "#b91c1c",
+                            borderRadius: "var(--radius-sm, 8px)",
+                            background: "var(--danger-bg, #fff1f2)",
+                            border: "1px solid #fecdd3",
+                            color: "var(--danger, #e11d48)",
                             fontSize: 13,
                             display: "flex",
                             alignItems: "center",
                             gap: 8,
+                            flexShrink: 0,
                         }}
                     >
                         <AlertCircle size={16} style={{ flexShrink: 0 }} />
-                        <span>{errorMessage}</span>
+                        <span style={{ fontWeight: 500 }}>{errorMessage}</span>
                     </div>
                 )}
 
-                {/* Body Content */}
-                <div className="modal-body" style={{ overflowY: "auto", flex: 1, padding: 24 }}>
-                    {/* STEP 1: Upload Dropzone */}
+                {/* Body Content (Scrolls if needed) */}
+                <div className="import-modal-body">
+                    {/* STEP 1: Upload Dropzone & Compatibility Guide */}
                     {step === 1 && (
-                        <div>
-                            {/* Preset Badges Info */}
-                            <div style={{ marginBottom: 16 }}>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>
-                                    SUPPORTED SOFTWARE FORMATS
-                                </label>
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                    {SOFTWARE_PRESETS.filter((p) => p.id !== "auto").map((preset) => (
-                                        <div
-                                            key={preset.id}
-                                            style={{
-                                                padding: "6px 12px",
-                                                borderRadius: 999,
-                                                background: "rgba(99, 102, 241, 0.06)",
-                                                border: "1px solid rgba(99, 102, 241, 0.18)",
-                                                fontSize: 12,
-                                                fontWeight: 600,
-                                                color: preset.color,
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: 5,
-                                            }}
-                                        >
-                                            <span>✓</span>
-                                            {preset.badge}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Dropzone */}
+                        <div className="import-grid-step1">
+                            {/* Left: Drag & Drop Zone */}
                             <div
+                                className="import-dropzone"
                                 onDrop={handleDrop}
                                 onDragOver={handleDragOver}
                                 onClick={() => fileInputRef.current?.click()}
-                                style={{
-                                    border: "2px dashed var(--accent, #4f46e5)",
-                                    borderRadius: 12,
-                                    padding: "45px 20px",
-                                    textAlign: "center",
-                                    cursor: "pointer",
-                                    background: "rgba(99, 102, 241, 0.02)",
-                                    transition: "all 0.2s ease",
-                                }}
                             >
                                 <div
                                     style={{
-                                        width: 54,
-                                        height: 54,
+                                        width: 60,
+                                        height: 60,
                                         borderRadius: "50%",
-                                        background: "rgba(99, 102, 241, 0.1)",
+                                        background: "rgba(79, 70, 229, 0.1)",
                                         color: "var(--accent, #4f46e5)",
                                         display: "flex",
                                         alignItems: "center",
                                         justifyContent: "center",
-                                        margin: "0 auto 14px",
+                                        marginBottom: 16,
                                     }}
                                 >
-                                    <UploadCloud size={28} />
+                                    <UploadCloud size={32} />
                                 </div>
-                                <h4 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700 }}>
-                                    Click or Drag & Drop File Here
-                                </h4>
-                                <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)" }}>
-                                    Supports <strong>.xlsx</strong>, <strong>.xls</strong>, or <strong>.csv</strong> exports directly from your accounting app
+                                <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+                                    Drag & Drop Spreadsheet File Here
+                                </h3>
+                                <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)", maxWidth: 360 }}>
+                                    Drop your exported file from Zoho, Vyapar, or MyBillBook directly, or choose from computer.
                                 </p>
-                                <span
-                                    className="btn btn-secondary"
-                                    style={{ pointerEvents: "none", fontSize: 12.5 }}
+
+                                <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+                                    {["XLSX", "XLS", "CSV"].map((ext) => (
+                                        <span
+                                            key={ext}
+                                            style={{
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                padding: "2px 8px",
+                                                borderRadius: 6,
+                                                background: "rgba(15, 23, 42, 0.06)",
+                                                color: "var(--text-secondary)",
+                                            }}
+                                        >
+                                            .{ext}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    style={{ pointerEvents: "none", fontSize: 13, padding: "8px 18px" }}
                                 >
-                                    Browse Files
-                                </span>
+                                    Browse from Computer
+                                </button>
+
                                 <input
                                     type="file"
                                     ref={fileInputRef}
@@ -490,68 +535,115 @@ export default function DataImportModal({
                                 />
                             </div>
 
-                            {/* Helpful Instructions */}
-                            <div
-                                style={{
-                                    marginTop: 20,
-                                    padding: 14,
-                                    borderRadius: 8,
-                                    background: "rgba(0,0,0,0.03)",
-                                    fontSize: 12.5,
-                                    color: "var(--text-secondary)",
-                                    lineHeight: 1.5,
-                                }}
-                            >
-                                <strong style={{ color: "var(--text-primary)" }}>💡 Easy Migration Tip:</strong>
-                                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                                    <li><strong>Vyapar:</strong> Go to Items / Reports → Export to Excel/CSV. Upload directly without renaming columns.</li>
-                                    <li><strong>Zoho Books:</strong> Go to Items / Invoices / Bills → Click the hamburger menu → Export as CSV or XLS.</li>
-                                    <li><strong>MyBillBook:</strong> Go to Items / Transactions → Export to Excel.</li>
-                                    <li>Our intelligent mapper will automatically identify and align all column headers in Step 2.</li>
-                                </ul>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* STEP 2: Column Mapping & Data Preview */}
-                    {step === 2 && (
-                        <div>
-                            {/* File Info & Detected Preset Banner */}
-                            <div
-                                style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    flexWrap: "wrap",
-                                    gap: 10,
-                                    padding: "10px 14px",
-                                    borderRadius: 8,
-                                    background: "rgba(99, 102, 241, 0.06)",
-                                    border: "1px solid rgba(99, 102, 241, 0.2)",
-                                    marginBottom: 18,
-                                }}
-                            >
-                                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                    <FileSpreadsheet size={20} color="var(--accent)" />
-                                    <div>
-                                        <div style={{ fontSize: 13.5, fontWeight: 700 }}>{fileName}</div>
-                                        <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                                            {fileSize} • {rawRows.length} rows loaded • {fileHeaders.length} columns detected
+                            {/* Right: Compatibility Cards & Migration Help */}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                                {/* Supported Software Card */}
+                                <div
+                                    style={{
+                                        padding: 16,
+                                        borderRadius: "var(--radius-lg, 12px)",
+                                        background: "var(--bg-surface)",
+                                        border: "1px solid var(--border)",
+                                    }}
+                                >
+                                    <span style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                                        Instant One-Click Compatibility
+                                    </span>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                                            <span style={{ color: "#ea580c", fontWeight: 700 }}>✓ Vyapar:</span>
+                                            <span style={{ color: "var(--text-secondary)" }}>Direct Items, Sales Invoices & Purchase Bills</span>
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                                            <span style={{ color: "#dc2626", fontWeight: 700 }}>✓ Zoho Books:</span>
+                                            <span style={{ color: "var(--text-secondary)" }}>Items List, Invoices & Bills CSV/XLS exports</span>
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                                            <span style={{ color: "#8b5cf6", fontWeight: 700 }}>✓ MyBillBook:</span>
+                                            <span style={{ color: "var(--text-secondary)" }}>Item Master, Sales & Purchase Excel files</span>
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                                            <span style={{ color: "#059669", fontWeight: 700 }}>✓ Generic Excel:</span>
+                                            <span style={{ color: "var(--text-secondary)" }}>Any custom spreadsheet with header columns</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Format:</span>
+                                {/* Sample Template Card */}
+                                <div
+                                    style={{
+                                        padding: 16,
+                                        borderRadius: "var(--radius-lg, 12px)",
+                                        background: "rgba(79, 70, 229, 0.05)",
+                                        border: "1px solid rgba(79, 70, 229, 0.2)",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        justifyContent: "space-between",
+                                        flex: 1,
+                                    }}
+                                >
+                                    <div>
+                                        <strong style={{ fontSize: 13, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                                            <Sparkles size={14} color="var(--accent)" /> Don't have an existing file?
+                                        </strong>
+                                        <p style={{ margin: "5px 0 12px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                                            Download our pre-formatted sample spreadsheet with test records, fill in your data, and import directly.
+                                        </p>
+                                    </div>
+
+                                    <a
+                                        href={templateEndpoint}
+                                        download
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ textDecoration: "none", width: "100%", justifyContent: "center", fontWeight: 600 }}
+                                    >
+                                        <Download size={13} /> Download Sample {type === "inventory" ? "Items" : type === "purchase" ? "Purchases" : "Sales"} CSV
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* STEP 2: Map Columns, Live Preview & Settings */}
+                    {step === 2 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                            {/* File Info Bar */}
+                            <div className="import-file-info-bar">
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                                    <div
+                                        style={{
+                                            padding: 8,
+                                            borderRadius: 8,
+                                            background: "rgba(79, 70, 229, 0.1)",
+                                            color: "var(--accent)",
+                                            flexShrink: 0,
+                                        }}
+                                    >
+                                        <FileSpreadsheet size={18} />
+                                    </div>
+                                    <div style={{ minWidth: 0, overflow: "hidden" }}>
+                                        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                                            {fileName}
+                                        </div>
+                                        <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                                            {fileSize} • <strong>{rawRows.length}</strong> rows • <strong>{fileHeaders.length}</strong> columns
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>
+                                        Preset:
+                                    </span>
                                     <select
                                         className="form-input"
-                                        style={{ fontSize: 12, padding: "4px 8px", width: "auto" }}
+                                        style={{ fontSize: 12, padding: "5px 10px", width: "auto" }}
                                         value={selectedPreset}
                                         onChange={(e) => handlePresetChange(e.target.value)}
                                     >
                                         {SOFTWARE_PRESETS.map((preset) => (
                                             <option key={preset.id} value={preset.id}>
-                                                {preset.id === detectedPresetId ? `✨ ${preset.name} (Auto-detected)` : preset.name}
+                                                {preset.id === detectedPresetId ? `✨ ${preset.name} (Detected)` : preset.name}
                                             </option>
                                         ))}
                                     </select>
@@ -566,24 +658,40 @@ export default function DataImportModal({
                                 </div>
                             </div>
 
-                            {/* Column Mapping Table */}
-                            <div style={{ marginBottom: 20 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                                    <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+                            {/* Column Mapping Section */}
+                            <div
+                                style={{
+                                    borderRadius: "var(--radius-lg, 12px)",
+                                    background: "var(--bg-surface)",
+                                    border: "1px solid var(--border)",
+                                    overflow: "hidden",
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        padding: "12px 18px",
+                                        borderBottom: "1px solid var(--border)",
+                                        background: "var(--bg-elevated)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                    }}
+                                >
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
                                         Field Column Mapping
-                                    </h4>
-                                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                                        Review or modify column assignments:
+                                    </span>
+                                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                                        Assign your file's columns to system fields
                                     </span>
                                 </div>
 
-                                <div style={{ border: "1px solid var(--border-color, #e2e8f0)", borderRadius: 8, overflow: "hidden" }}>
-                                    <table className="data-table" style={{ fontSize: 12.5, margin: 0 }}>
+                                <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                                    <table className="data-table import-mapping-table" style={{ fontSize: 12.5, margin: 0 }}>
                                         <thead>
-                                            <tr style={{ background: "rgba(0,0,0,0.03)" }}>
-                                                <th style={{ width: "35%" }}>Our System Field</th>
-                                                <th style={{ width: "45%" }}>Your File's Column Header</th>
-                                                <th style={{ width: "20%", textAlign: "center" }}>Match Status</th>
+                                            <tr style={{ background: "var(--bg-surface)", position: "sticky", top: 0, zIndex: 2 }}>
+                                                <th style={{ width: "35%" }}>System Field</th>
+                                                <th style={{ width: "45%" }}>Your File Header</th>
+                                                <th style={{ width: "20%", textAlign: "center" }}>Status</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -594,15 +702,15 @@ export default function DataImportModal({
                                                 return (
                                                     <tr key={field.key}>
                                                         <td>
-                                                            <div style={{ fontWeight: 600 }}>
+                                                            <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
                                                                 {field.label}{" "}
                                                                 {field.required ? (
-                                                                    <span style={{ color: "var(--danger, #ef4444)" }} title="Required">*</span>
+                                                                    <span style={{ color: "var(--danger)" }} title="Required">*</span>
                                                                 ) : (
                                                                     <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontWeight: 400 }}>(Optional)</span>
                                                                 )}
                                                             </div>
-                                                            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                                                            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
                                                                 {field.description}
                                                             </div>
                                                         </td>
@@ -612,7 +720,8 @@ export default function DataImportModal({
                                                                 style={{
                                                                     fontSize: 12,
                                                                     padding: "5px 10px",
-                                                                    borderColor: !isMapped && field.required ? "rgba(239, 68, 68, 0.5)" : "inherit",
+                                                                    background: isMapped ? "rgba(16, 185, 129, 0.04)" : "inherit",
+                                                                    borderColor: isMapped ? "#10b981" : (!isMapped && field.required ? "var(--danger)" : "var(--border)"),
                                                                 }}
                                                                 value={currentHeader}
                                                                 onChange={(e) => {
@@ -622,7 +731,7 @@ export default function DataImportModal({
                                                                     }));
                                                                 }}
                                                             >
-                                                                <option value="">-- Do Not Import / Skip --</option>
+                                                                <option value="">-- Do Not Import (Skip) --</option>
                                                                 {fileHeaders.map((header) => (
                                                                     <option key={header} value={header}>
                                                                         {header}
@@ -630,7 +739,7 @@ export default function DataImportModal({
                                                                 ))}
                                                             </select>
                                                         </td>
-                                                        <td style={{ textAlign: "center" }}>
+                                                        <td className="import-mapping-status-cell" style={{ textAlign: "center" }}>
                                                             {isMapped ? (
                                                                 <span
                                                                     style={{
@@ -639,8 +748,8 @@ export default function DataImportModal({
                                                                         gap: 4,
                                                                         padding: "3px 8px",
                                                                         borderRadius: 999,
-                                                                        background: "rgba(16, 185, 129, 0.12)",
-                                                                        color: "#059669",
+                                                                        background: "var(--success-bg, #ecfdf5)",
+                                                                        color: "var(--success, #059669)",
                                                                         fontSize: 11,
                                                                         fontWeight: 600,
                                                                     }}
@@ -655,8 +764,8 @@ export default function DataImportModal({
                                                                         gap: 4,
                                                                         padding: "3px 8px",
                                                                         borderRadius: 999,
-                                                                        background: "rgba(239, 68, 68, 0.1)",
-                                                                        color: "#dc2626",
+                                                                        background: "var(--danger-bg, #fff1f2)",
+                                                                        color: "var(--danger, #e11d48)",
                                                                         fontSize: 11,
                                                                         fontWeight: 600,
                                                                     }}
@@ -686,15 +795,37 @@ export default function DataImportModal({
                                 </div>
                             </div>
 
-                            {/* Live Preview Table (First 5 rows) */}
-                            <div style={{ marginBottom: 20 }}>
-                                <h4 style={{ margin: "0 0 8px", fontSize: 13.5, fontWeight: 700 }}>
-                                    Data Preview (First 5 Rows Mapped)
-                                </h4>
-                                <div style={{ overflowX: "auto", border: "1px solid var(--border-color, #e2e8f0)", borderRadius: 8 }}>
+                            {/* Live Preview Table */}
+                            <div
+                                style={{
+                                    borderRadius: "var(--radius-lg, 12px)",
+                                    background: "var(--bg-surface)",
+                                    border: "1px solid var(--border)",
+                                    overflow: "hidden",
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        padding: "10px 18px",
+                                        borderBottom: "1px solid var(--border)",
+                                        background: "var(--bg-elevated)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                    }}
+                                >
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                                        Mapped Data Preview (First 5 Rows)
+                                    </span>
+                                    <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                                        Showing how records will be stored
+                                    </span>
+                                </div>
+
+                                <div style={{ overflowX: "auto" }}>
                                     <table className="data-table" style={{ fontSize: 12, margin: 0 }}>
                                         <thead>
-                                            <tr style={{ background: "rgba(0,0,0,0.02)" }}>
+                                            <tr style={{ background: "var(--bg-surface)" }}>
                                                 <th style={{ width: 40 }}>#</th>
                                                 {targetFields
                                                     .filter((f) => columnMapping[f.key])
@@ -723,42 +854,32 @@ export default function DataImportModal({
                                 </div>
                             </div>
 
-                            {/* Import Options / Settings */}
-                            <div
-                                style={{
-                                    padding: 14,
-                                    borderRadius: 8,
-                                    background: "rgba(0,0,0,0.02)",
-                                    border: "1px solid var(--border-color, #e2e8f0)",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: 12,
-                                }}
-                            >
-                                <strong style={{ fontSize: 13 }}>Import Settings:</strong>
+                            {/* Import Settings Card */}
+                            <div className="import-settings-card">
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                    <label style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                                        Duplicate Records:
+                                    </label>
+                                    <select
+                                        className="form-input"
+                                        style={{ display: "inline-block", width: "auto", fontSize: 12, padding: "4px 8px" }}
+                                        value={duplicateAction}
+                                        onChange={(e) => setDuplicateAction(e.target.value)}
+                                    >
+                                        {type === "inventory" && (
+                                            <option value="update">Update existing stock & price (Recommended)</option>
+                                        )}
+                                        <option value="skip">Skip existing records</option>
+                                        {type === "purchase" && (
+                                            <option value="replace">Overwrite & replace existing bills</option>
+                                        )}
+                                        <option value="create_new">Create as new separate records</option>
+                                    </select>
+                                </div>
 
-                                <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", fontSize: 12.5 }}>
-                                    <div>
-                                        <label style={{ fontWeight: 600, marginRight: 8 }}>Duplicate Handling:</label>
-                                        <select
-                                            className="form-input"
-                                            style={{ display: "inline-block", width: "auto", fontSize: 12, padding: "4px 8px" }}
-                                            value={duplicateAction}
-                                            onChange={(e) => setDuplicateAction(e.target.value)}
-                                        >
-                                            {type === "inventory" && (
-                                                <option value="update">Update existing item stock & price (Recommended)</option>
-                                            )}
-                                            <option value="skip">Skip existing records</option>
-                                            {type === "purchase" && (
-                                                <option value="replace">Overwrite & replace existing purchase bills</option>
-                                            )}
-                                            <option value="create_new">Create as new separate records</option>
-                                        </select>
-                                    </div>
-
+                                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                                     {(type === "purchase" || type === "sales") && (
-                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 500, color: "var(--text-secondary)" }}>
                                             <input
                                                 type="checkbox"
                                                 checked={syncInventory}
@@ -766,20 +887,20 @@ export default function DataImportModal({
                                             />
                                             <span>
                                                 {type === "purchase"
-                                                    ? "Sync quantities directly into Inventory stock"
-                                                    : "Deduct quantities from Inventory stock"}
+                                                    ? "Sync purchased quantities to Inventory"
+                                                    : "Deduct sold quantities from Inventory"}
                                             </span>
                                         </label>
                                     )}
 
                                     {type === "sales" && (
-                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 500, color: "var(--text-secondary)" }}>
                                             <input
                                                 type="checkbox"
                                                 checked={createCustomers}
                                                 onChange={(e) => setCreateCustomers(e.target.checked)}
                                             />
-                                            <span>Auto-save new customer names to Customers directory</span>
+                                            <span>Save new customers to Directory</span>
                                         </label>
                                     )}
                                 </div>
@@ -787,99 +908,92 @@ export default function DataImportModal({
                         </div>
                     )}
 
-                    {/* STEP 3: Execution Result Summary */}
+                    {/* STEP 3: Results & Execution Summary */}
                     {step === 3 && importResult && (
-                        <div style={{ textAlign: "center", padding: "20px 10px" }}>
+                        <div style={{ textAlign: "center", padding: "30px 16px" }}>
                             <div
                                 style={{
-                                    width: 60,
-                                    height: 60,
+                                    width: 64,
+                                    height: 64,
                                     borderRadius: "50%",
-                                    background: "rgba(16, 185, 129, 0.12)",
-                                    color: "#059669",
+                                    background: "var(--success-bg, #ecfdf5)",
+                                    color: "var(--success, #059669)",
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
-                                    margin: "0 auto 16px",
+                                    margin: "0 auto 18px",
                                 }}
                             >
-                                <CheckCircle2 size={34} />
+                                <CheckCheck size={36} />
                             </div>
 
-                            <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700 }}>
+                            <h3 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 800, color: "var(--text-primary)" }}>
                                 Data Imported Successfully!
                             </h3>
-                            <p style={{ margin: "0 0 24px", fontSize: 13.5, color: "var(--text-secondary)" }}>
-                                {importResult.message || "Your records have been imported into the application."}
+                            <p style={{ margin: "0 0 24px", fontSize: 13.5, color: "var(--text-muted)" }}>
+                                {importResult.message || "Your spreadsheet records have been integrated into the database."}
                             </p>
 
-                            {/* Summary Metrics */}
+                            {/* Metric Cards */}
                             {importResult.summary && (
-                                <div
-                                    style={{
-                                        display: "grid",
-                                        gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                                        gap: 12,
-                                        maxWidth: 550,
-                                        margin: "0 auto 24px",
-                                    }}
-                                >
+                                <div className="import-results-grid">
                                     {importResult.summary.created !== undefined && (
-                                        <div style={{ padding: 12, borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
-                                            <div style={{ fontSize: 20, fontWeight: 800, color: "#059669" }}>
+                                        <div style={{ padding: 16, borderRadius: "var(--radius-lg, 12px)", background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+                                            <div style={{ fontSize: 24, fontWeight: 800, color: "var(--success, #059669)" }}>
                                                 {importResult.summary.created}
                                             </div>
-                                            <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>New Created</div>
+                                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>New Records Added</div>
                                         </div>
                                     )}
 
                                     {importResult.summary.updated !== undefined && (
-                                        <div style={{ padding: 12, borderRadius: 8, background: "rgba(99, 102, 241, 0.08)", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-                                            <div style={{ fontSize: 20, fontWeight: 800, color: "var(--accent)" }}>
+                                        <div style={{ padding: 16, borderRadius: "var(--radius-lg, 12px)", background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+                                            <div style={{ fontSize: 24, fontWeight: 800, color: "var(--accent)" }}>
                                                 {importResult.summary.updated}
                                             </div>
-                                            <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Updated</div>
+                                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Existing Updated</div>
                                         </div>
                                     )}
 
                                     {importResult.summary.skipped !== undefined && (
-                                        <div style={{ padding: 12, borderRadius: 8, background: "rgba(0,0,0,0.04)", border: "1px solid var(--border-color, #e2e8f0)" }}>
-                                            <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text-muted)" }}>
+                                        <div style={{ padding: 16, borderRadius: "var(--radius-lg, 12px)", background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+                                            <div style={{ fontSize: 24, fontWeight: 800, color: "var(--text-muted)" }}>
                                                 {importResult.summary.skipped}
                                             </div>
-                                            <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Skipped</div>
+                                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Skipped</div>
                                         </div>
                                     )}
 
                                     {importResult.summary.customers_created !== undefined && (
-                                        <div style={{ padding: 12, borderRadius: 8, background: "rgba(139, 92, 246, 0.08)", border: "1px solid rgba(139, 92, 246, 0.2)" }}>
-                                            <div style={{ fontSize: 20, fontWeight: 800, color: "#8b5cf6" }}>
+                                        <div style={{ padding: 16, borderRadius: "var(--radius-lg, 12px)", background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+                                            <div style={{ fontSize: 24, fontWeight: 800, color: "#8b5cf6" }}>
                                                 {importResult.summary.customers_created}
                                             </div>
-                                            <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Customers Added</div>
+                                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Customers Added</div>
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            {/* Errors / Warnings List if any */}
+                            {/* Warnings/Skipped Details */}
                             {importResult.summary?.errors && importResult.summary.errors.length > 0 && (
                                 <div
                                     style={{
                                         textAlign: "left",
-                                        padding: 12,
-                                        borderRadius: 8,
-                                        background: "rgba(245, 158, 11, 0.1)",
-                                        border: "1px solid rgba(245, 158, 11, 0.25)",
+                                        padding: 14,
+                                        borderRadius: "var(--radius-md, 10px)",
+                                        background: "var(--warning-bg, #fffbeb)",
+                                        border: "1px solid #fde68a",
                                         fontSize: 12,
                                         color: "#b45309",
                                         maxHeight: 140,
                                         overflowY: "auto",
-                                        marginBottom: 20,
+                                        maxWidth: 600,
+                                        margin: "0 auto",
                                     }}
                                 >
-                                    <strong>Warnings / Skipped Details:</strong>
-                                    <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                                    <strong>Details / Skipped Items:</strong>
+                                    <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
                                         {importResult.summary.errors.map((err, i) => (
                                             <li key={i}>{err}</li>
                                         ))}
@@ -890,8 +1004,8 @@ export default function DataImportModal({
                     )}
                 </div>
 
-                {/* Footer Controls */}
-                <div className="modal-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                {/* Footer Action Bar */}
+                <div className="import-modal-footer">
                     <div>
                         {step === 2 && (
                             <button
@@ -900,7 +1014,7 @@ export default function DataImportModal({
                                 onClick={() => setStep(1)}
                                 disabled={importing}
                             >
-                                <ArrowLeft size={14} /> Back
+                                <ArrowLeft size={14} /> Back to File
                             </button>
                         )}
                     </div>
@@ -922,11 +1036,11 @@ export default function DataImportModal({
                                         className="btn btn-primary"
                                         onClick={handleImport}
                                         disabled={importing || missingRequired.length > 0}
-                                        style={{ minWidth: 150 }}
+                                        style={{ minWidth: 160 }}
                                     >
                                         {importing ? (
                                             <>
-                                                <RefreshCw size={14} className="animate-spin" /> Importing...
+                                                <RefreshCw size={14} className="animate-spin" /> Importing Data...
                                             </>
                                         ) : (
                                             <>
@@ -943,7 +1057,7 @@ export default function DataImportModal({
                                 onClick={onClose}
                                 style={{ minWidth: 120 }}
                             >
-                                Done
+                                Done & View Records
                             </button>
                         )}
                     </div>

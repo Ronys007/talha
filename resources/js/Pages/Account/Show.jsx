@@ -133,11 +133,11 @@ export default function AccountShow({ order, transactions }) {
             {/* Summary */}
             <div
                 className="stats-grid"
-                style={{ marginBottom: 16, flexShrink: 0 }}
+                style={{ marginBottom: 14, flexShrink: 0 }}
             >
                 <div className="stat-card">
                     <div className="stat-label">Bill Amount</div>
-                    <div className="stat-value" style={{ fontSize: 20 }}>
+                    <div className="stat-value">
                         ₹{parseFloat(order.total_price).toFixed(2)}
                     </div>
                 </div>
@@ -145,7 +145,7 @@ export default function AccountShow({ order, transactions }) {
                     <div className="stat-label">Total Paid</div>
                     <div
                         className="stat-value"
-                        style={{ fontSize: 20, color: "var(--success)" }}
+                        style={{ color: "var(--success)" }}
                     >
                         ₹{totalPaid.toFixed(2)}
                     </div>
@@ -154,7 +154,7 @@ export default function AccountShow({ order, transactions }) {
                     <div className="stat-label">Credits Added</div>
                     <div
                         className="stat-value"
-                        style={{ fontSize: 20, color: "var(--warning)" }}
+                        style={{ color: "var(--warning)" }}
                     >
                         ₹{totalCredit.toFixed(2)}
                     </div>
@@ -164,7 +164,6 @@ export default function AccountShow({ order, transactions }) {
                     <div
                         className="stat-value"
                         style={{
-                            fontSize: 20,
                             color:
                                 balance <= 0
                                     ? "var(--success)"

@@ -16,7 +16,7 @@ class SendDuePaymentRemindersCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'invoices:send-due-reminders {--dry-run : Run without actually sending WhatsApp messages}';
+    protected $signature = 'invoices:send-due-reminders {--dry-run : Run without actually sending WhatsApp messages} {--force : Send reminder even if already sent today}';
 
     /**
      * The console command description.
@@ -30,86 +30,101 @@ class SendDuePaymentRemindersCommand extends Command
      */
     public function handle(WhatsAppService $whatsAppService)
     {
-        $today = Carbon::today();
-        $isDryRun = $this->option('dry-run');
+        $today = Carbon::now(config('app.timezone', 'Asia/Kolkata'))->startOfDay();
+        $isDryRun = (bool) $this->option('dry-run');
+        $isForce = (bool) $this->option('force');
 
         $this->info("Scanning invoices for automatic WhatsApp payment reminders (Target: Due in <= 3 days or Overdue)...");
 
-        // Find all invoices that:
-        // 1. Are not fully paid or cancelled
-        // 2. Have balance due > 0 (using COALESCE to avoid NULL arithmetic issues)
-        // 3. Have a customer phone number
-        // 4. Due date (or invoice date) is within reminder window (due in <= 3 days or overdue up to 30 days)
-        $invoices = Invoice::whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
+        // Calculate date boundaries for high-performance SQL push-down:
+        // Window: Overdue up to 30 days (-30) to Due in 3 days (+3)
+        $minDueDate = $today->copy()->subDays(30)->toDateString();
+        $maxDueDate = $today->copy()->addDays(3)->toDateString();
+
+        // High-scale SQL query push-down:
+        // 1. Not Paid or Cancelled
+        // 2. Customer phone is present and not blank
+        // 3. Balance due > 0.01 (total_amount - paid_amount)
+        // 4. Effective due date (COALESCE(due_date, invoice_date)) is between -30 days and +3 days
+        $query = Invoice::whereNotIn('status', ['Paid', 'Cancelled', 'cancelled'])
             ->whereNotNull('customer_phone')
             ->whereRaw('TRIM(customer_phone) != ""')
             ->whereRaw('(total_amount - COALESCE(paid_amount, 0)) > 0.01')
-            ->get();
+            ->whereRaw('COALESCE(due_date, invoice_date) BETWEEN ? AND ?', [$minDueDate, $maxDueDate])
+            ->orderBy('id');
 
-        $eligibleInvoices = $invoices->filter(function (Invoice $invoice) use ($today) {
-            $dueDateStr = $invoice->due_date ?: $invoice->invoice_date;
-            if (!$dueDateStr) {
-                return false;
-            }
+        $totalMatching = (clone $query)->count();
+        $this->info("Found {$totalMatching} eligible invoices within reminder window ({$minDueDate} to {$maxDueDate}).");
 
-            $dueDate = Carbon::parse($dueDateStr)->startOfDay();
-            // diffInDays: positive if dueDate is in the future/today, negative if past (overdue)
-            $diffDays = $today->diffInDays($dueDate, false);
-
-            // Remind if due in <= 3 days, due today, or overdue up to 30 days
-            return ($diffDays <= 3 && $diffDays >= -30);
-        });
-
-        $this->info("Found {$eligibleInvoices->count()} invoices within the due/overdue reminder window.");
+        if ($totalMatching === 0) {
+            $this->info("No invoices require payment reminders today.");
+            return 0;
+        }
 
         $sentCount = 0;
         $skippedCount = 0;
+        $failedCount = 0;
 
-        foreach ($eligibleInvoices as $invoice) {
-            $dueDateStr = $invoice->due_date ?: $invoice->invoice_date;
-            $dueDate = Carbon::parse($dueDateStr)->startOfDay();
-            $diffDays = $today->diffInDays($dueDate, false);
+        // Process in chunks of 100 to prevent PHP memory exhaustion at scale (1,000s of entries)
+        $query->chunkById(100, function ($invoices) use ($today, $isDryRun, $isForce, $whatsAppService, &$sentCount, &$skippedCount, &$failedCount) {
+            foreach ($invoices as $invoice) {
+                $dueDateStr = $invoice->due_date ?: $invoice->invoice_date;
+                $dueDate = Carbon::parse($dueDateStr)->startOfDay();
+                // diffInDays: positive if dueDate is in the future/today, negative if past (overdue)
+                $diffDays = $today->diffInDays($dueDate, false);
 
-            $statusText = $diffDays > 0 ? "{$diffDays} day(s) left until due" : ($diffDays === 0 ? "due TODAY" : abs($diffDays) . " day(s) OVERDUE");
-
-            // Avoid duplicate reminder on the same calendar day for the same invoice
-            $alreadySentToday = WhatsappMessageLog::where('invoice_id', $invoice->id)
-                ->where('trigger_type', 'payment_reminder')
-                ->whereDate('created_at', $today)
-                ->whereIn('status', ['sent', 'fallback_link'])
-                ->exists();
-
-            if ($alreadySentToday) {
-                $this->line("Skipping Invoice #{$invoice->invoice_number} - already notified today.");
-                $skippedCount++;
-                continue;
-            }
-
-            $this->info("Dispatching reminder for Invoice #{$invoice->invoice_number} ({$invoice->customer_name}) - {$statusText} (Due Date: {$dueDate->format('d M Y')})");
-
-            if ($isDryRun) {
-                $sentCount++;
-                continue;
-            }
-
-            try {
-                $result = $whatsAppService->sendInvoiceDocument($invoice, 'payment_reminder');
-                if (($result['status'] ?? '') === 'sent' || ($result['success'] ?? false)) {
-                    $sentCount++;
-                    $this->info("✓ Reminder sent to {$invoice->customer_phone} ({$invoice->customer_name}).");
-                } else {
-                    $this->warn("! Reminder queued/fallback for {$invoice->customer_phone}: " . ($result['error'] ?? 'fallback link generated'));
+                // Re-verify exact bounds (<= 3 days remaining and >= -30 days overdue)
+                if ($diffDays > 3 || $diffDays < -30) {
+                    continue;
                 }
-            } catch (\Throwable $e) {
-                Log::error("Failed auto reminder for Invoice #{$invoice->id}: " . $e->getMessage());
-                $this->error("Error sending reminder for Invoice #{$invoice->id}: " . $e->getMessage());
+
+                $balanceDue = round((float)$invoice->total_amount - (float)($invoice->paid_amount ?? 0), 2);
+                $statusText = $diffDays > 0 ? "{$diffDays} day(s) left until due" : ($diffDays === 0 ? "due TODAY" : abs($diffDays) . " day(s) OVERDUE");
+
+                // Avoid duplicate reminder on the same calendar day for the same invoice, unless forced.
+                // NOTE: We only consider status = 'sent' as a completed reminder. If previous run was fallback_link,
+                // we allow retrying automated delivery when Baileys is back online.
+                if (!$isForce) {
+                    $alreadySentToday = WhatsappMessageLog::where('invoice_id', $invoice->id)
+                        ->where('trigger_type', 'payment_reminder')
+                        ->whereDate('created_at', $today->toDateString())
+                        ->where('status', 'sent')
+                        ->exists();
+
+                    if ($alreadySentToday) {
+                        $this->line("Skipping Invoice #{$invoice->invoice_number} - already notified today.");
+                        $skippedCount++;
+                        continue;
+                    }
+                }
+
+                $this->info("Dispatching reminder for Invoice #{$invoice->invoice_number} ({$invoice->customer_name}) - {$statusText} (Due Date: {$dueDate->format('d M Y')}, Due: ₹{$balanceDue})");
+
+                if ($isDryRun) {
+                    $sentCount++;
+                    continue;
+                }
+
+                try {
+                    $result = $whatsAppService->sendInvoiceDocument($invoice, 'payment_reminder');
+                    if (($result['status'] ?? '') === 'sent' || ($result['success'] ?? false)) {
+                        $sentCount++;
+                        $this->info("✓ Reminder sent to {$invoice->customer_phone} ({$invoice->customer_name}).");
+                    } else {
+                        $this->warn("! Reminder fallback for {$invoice->customer_phone}: " . ($result['error'] ?? 'fallback link generated'));
+                    }
+                } catch (\Throwable $e) {
+                    $failedCount++;
+                    Log::error("Failed auto reminder for Invoice #{$invoice->id}: " . $e->getMessage());
+                    $this->error("Error sending reminder for Invoice #{$invoice->id}: " . $e->getMessage());
+                }
+
+                // Anti-ban gentle sleep between automated reminder dispatches
+                usleep(300000); // 300ms
             }
+        });
 
-            // Anti-ban gentle sleep between automated reminder dispatches
-            usleep(500000); // 500ms
-        }
-
-        $this->info("Auto-reminder routine completed: {$sentCount} sent, {$skippedCount} skipped.");
+        $this->info("Auto-reminder routine completed: {$sentCount} sent, {$skippedCount} skipped, {$failedCount} failed.");
         return 0;
     }
 }

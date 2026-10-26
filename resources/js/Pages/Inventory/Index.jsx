@@ -799,29 +799,19 @@ export default function InventoryIndex() {
                         </div>
                         {items.length > 0 && (
                             <div
+                                className="inventory-total-value-pill"
                                 title="Total valuation of currently loaded inventory items (Price × Quantity)"
-                                style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    padding: "6px 12px",
-                                    borderRadius: 8,
-                                    background: "rgba(79, 70, 229, 0.08)",
-                                    border: "1px solid rgba(79, 70, 229, 0.2)",
-                                    color: "var(--accent, #4f46e5)",
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                }}
                             >
-                                <span style={{ color: "var(--text-secondary)" }}>Total Value:</span>
-                                <strong style={{ fontSize: 13.5 }}>
+                                <span className="total-val-label">Total Value:</span>
+                                <strong className="total-val-num">
                                     ₹{totalInventoryValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </strong>
                             </div>
                         )}
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <button
+                            type="button"
                             className="btn btn-secondary"
                             onClick={() => setImportModalOpen(true)}
                             title="Import items from Zoho Books, Vyapar, MyBillBook, Excel or CSV"
@@ -829,6 +819,7 @@ export default function InventoryIndex() {
                             <Upload size={15} /> Import Items
                         </button>
                         <button
+                            type="button"
                             className="btn btn-primary"
                             onClick={() => { setEditItem(null); setDrawerOpen(true); }}
                         >

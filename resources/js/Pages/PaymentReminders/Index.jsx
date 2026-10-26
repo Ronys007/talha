@@ -263,7 +263,6 @@ export default function PaymentRemindersIndex({ bills = [], summary = {}, busine
     const [updatingDueDateId, setUpdatingDueDateId] = useState(null);
     const [previewBill, setPreviewBill] = useState(null);
     const [generatingPdfId, setGeneratingPdfId] = useState(null);
-    const [sendingAllDue, setSendingAllDue] = useState(false);
 
     // Auto-open wa.me link if fallback was triggered
     useEffect(() => {
@@ -271,15 +270,6 @@ export default function PaymentRemindersIndex({ bills = [], summary = {}, busine
             window.open(flash.wa_me_url, "_blank");
         }
     }, [flash?.wa_me_url]);
-
-    function handleSendAllDueReminders() {
-        if (!confirm("Send WhatsApp payment reminders to all customers with invoices due within 3 days or overdue?")) return;
-        setSendingAllDue(true);
-        router.post("/sales-reminders/send-all-due", {}, {
-            preserveScroll: true,
-            onFinish: () => setSendingAllDue(false),
-        });
-    }
 
     // Hidden container ref for off-screen PDF capture on WhatsApp click
     const offscreenPdfRef = useRef(null);
@@ -583,11 +573,11 @@ ${bName}${phone}`;
         <AppLayout title="Sales Reminders">
             <div className="page-full-card" style={{ gap: 14 }}>
                 {/* Metric Summary Cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+                <div className="stats-grid" style={{ marginBottom: 14 }}>
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--danger)" }}>
                         <div className="stat-label">Total Receivable Dues</div>
                         <div className="stat-value" style={{ color: "var(--danger)" }}>₹{toMoney(summary.total_receivable)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Pending customer payments</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Pending customer payments</div>
                     </div>
 
                     <div 
@@ -598,7 +588,7 @@ ${bName}${phone}`;
                     >
                         <div className="stat-label" style={{ color: "#b45309" }}>Partial Payments</div>
                         <div className="stat-value" style={{ color: "#b45309" }}>{summary.partial_paid_count || 0}</div>
-                        <div style={{ fontSize: 11, color: "#b45309" }}>
+                        <div style={{ fontSize: 10.5, color: "#b45309" }}>
                             ₹{toMoney(summary.total_partial_due || 0)} remaining balance
                         </div>
                     </div>
@@ -606,24 +596,24 @@ ${bName}${phone}`;
                     <div className="stat-card" style={{ borderLeft: "4px solid #dc2626", background: "#fef2f2" }}>
                         <div className="stat-label" style={{ color: "#991b1b" }}>Overdue Invoices</div>
                         <div className="stat-value" style={{ color: "#991b1b" }}>₹{toMoney(summary.total_overdue)}</div>
-                        <div style={{ fontSize: 11, color: "#991b1b" }}>{summary.overdue_count} bills past due date</div>
+                        <div style={{ fontSize: 10.5, color: "#991b1b" }}>{summary.overdue_count} bills past due date</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--warning)" }}>
                         <div className="stat-label">Due Today</div>
                         <div className="stat-value" style={{ color: "var(--warning)" }}>{summary.due_today_count}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Bills due today</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Bills due today</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--accent)" }}>
                         <div className="stat-label">Total Tracked Bills</div>
                         <div className="stat-value">{summary.total_bills}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Sales invoices &amp; orders</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Sales invoices &amp; orders</div>
                     </div>
                 </div>
 
                 {/* Toolbar & Filter Tabs */}
-                <div className="card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="card responsive-card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flex: 1, minWidth: 280 }}>
                             <div className="search-input-wrap" style={{ width: "100%", maxWidth: 340 }}>
@@ -641,30 +631,24 @@ ${bName}${phone}`;
                                 )}
                             </div>
 
-                            <button
-                                type="button"
-                                className="btn btn-sm"
+                            <div
                                 style={{
-                                    background: "#25D366",
-                                    borderColor: "#128C7E",
-                                    color: "#ffffff",
-                                    fontWeight: 600,
-                                    fontSize: 12,
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 6,
+                                    fontSize: 12,
+                                    color: "#047857",
+                                    background: "#ecfdf5",
+                                    border: "1px solid #a7f3d0",
                                     padding: "6px 12px",
                                     borderRadius: 6,
-                                    cursor: "pointer",
-                                    boxShadow: "0 2px 6px rgba(37, 211, 102, 0.25)",
+                                    fontWeight: 600,
                                 }}
-                                onClick={handleSendAllDueReminders}
-                                disabled={sendingAllDue}
-                                title="Send WhatsApp payment reminders with invoice PDFs to all customers due within 3 days or overdue"
+                                title="Automated WhatsApp reminders are sent daily to customers starting 3 days before their due date"
                             >
-                                {sendingAllDue ? <Loader2 size={13} className="spin" /> : <MessageCircle size={13} />}
-                                {sendingAllDue ? "Dispatching..." : "Send All Due Reminders (WhatsApp)"}
-                            </button>
+                                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }}></span>
+                                Auto WhatsApp Reminders Active (Daily when Due in ≤ 3 Days)
+                            </div>
                         </div>
 
                         {/* Filter Tabs */}

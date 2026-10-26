@@ -258,7 +258,6 @@ export default function PurchaseRemindersIndex({ bills = [], summary = {}, busin
     const [previewBill, setPreviewBill] = useState(null);
     const [paymentModalBill, setPaymentModalBill] = useState(null);
     const [sendingWhatsAppId, setSendingWhatsAppId] = useState(null);
-    const [sendingAllDue, setSendingAllDue] = useState(false);
 
     // Auto-open wa.me link if fallback was triggered
     useEffect(() => {
@@ -266,15 +265,6 @@ export default function PurchaseRemindersIndex({ bills = [], summary = {}, busin
             window.open(flash.wa_me_url, "_blank");
         }
     }, [flash?.wa_me_url]);
-
-    function handleSendAllDueReminders() {
-        if (!confirm("Send WhatsApp payment reminders for all supplier purchase bills due within 3 days or overdue to your WhatsApp number?")) return;
-        setSendingAllDue(true);
-        router.post("/purchase-reminders/send-all-due", {}, {
-            preserveScroll: true,
-            onFinish: () => setSendingAllDue(false),
-        });
-    }
 
     const { data, setData, post, processing, reset } = useForm({
         id: "",
@@ -536,34 +526,34 @@ Please ensure this payment is fulfilled to ${bill.supplier_name} on or before th
         <AppLayout title="Purchase Reminders">
             <div className="page-full-card" style={{ gap: 14 }}>
                 {/* Metric Summary Cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+                <div className="stats-grid" style={{ marginBottom: 14 }}>
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--danger)" }}>
                         <div className="stat-label">Total Payable to Suppliers</div>
                         <div className="stat-value" style={{ color: "var(--danger)" }}>₹{toMoney(summary.total_payable)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Outstanding supplier dues</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Outstanding supplier dues</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid #dc2626", background: "#fef2f2" }}>
                         <div className="stat-label" style={{ color: "#991b1b" }}>Overdue Supplier Bills</div>
                         <div className="stat-value" style={{ color: "#991b1b" }}>₹{toMoney(summary.total_overdue)}</div>
-                        <div style={{ fontSize: 11, color: "#991b1b" }}>{summary.overdue_count} bills past credit terms</div>
+                        <div style={{ fontSize: 10.5, color: "#991b1b" }}>{summary.overdue_count} bills past credit terms</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--warning)" }}>
                         <div className="stat-label">Payable Today</div>
                         <div className="stat-value" style={{ color: "var(--warning)" }}>{summary.due_today_count}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Bills due for payout today</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Bills due for payout today</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--accent)" }}>
                         <div className="stat-label">Total Purchase Orders</div>
                         <div className="stat-value">{summary.total_bills}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Supplier bills tracked</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Supplier bills tracked</div>
                     </div>
                 </div>
 
                 {/* Toolbar & Filter Tabs */}
-                <div className="card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="card responsive-card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flex: 1, minWidth: 280 }}>
                             <div className="search-input-wrap" style={{ width: "100%", maxWidth: 340 }}>
@@ -581,30 +571,24 @@ Please ensure this payment is fulfilled to ${bill.supplier_name} on or before th
                                 )}
                             </div>
 
-                            <button
-                                type="button"
-                                className="btn btn-sm"
+                            <div
                                 style={{
-                                    background: "#25D366",
-                                    borderColor: "#128C7E",
-                                    color: "#ffffff",
-                                    fontWeight: 600,
-                                    fontSize: 12,
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 6,
+                                    fontSize: 12,
+                                    color: "#047857",
+                                    background: "#ecfdf5",
+                                    border: "1px solid #a7f3d0",
                                     padding: "6px 12px",
                                     borderRadius: 6,
-                                    cursor: "pointer",
-                                    boxShadow: "0 2px 6px rgba(37, 211, 102, 0.25)",
+                                    fontWeight: 600,
                                 }}
-                                onClick={handleSendAllDueReminders}
-                                disabled={sendingAllDue}
-                                title="Send WhatsApp purchase reminders with statement PDFs to your WhatsApp for all supplier bills due within 3 days or overdue"
+                                title="Automated WhatsApp purchase reminders are sent to your WhatsApp starting 3 days before supplier due dates"
                             >
-                                {sendingAllDue ? <Loader2 size={13} className="spin" /> : <MessageCircle size={13} />}
-                                {sendingAllDue ? "Dispatching..." : "Send Due Reminders (To My WhatsApp)"}
-                            </button>
+                                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }}></span>
+                                Auto Reminders to Admin Active (Daily when Due in ≤ 3 Days)
+                            </div>
                         </div>
 
                         {/* Filter Tabs */}

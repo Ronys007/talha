@@ -207,20 +207,20 @@ export default function MarginIndex({ invoices = [], purchases = [], inventoryLi
         <AppLayout title="Bill Margin & Profit Calculator">
             <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", paddingBottom: 60 }}>
                 {/* Header Banner */}
-                <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)", color: "#ffffff", padding: "18px 22px", borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ width: 42, height: 42, borderRadius: 10, background: "rgba(255, 255, 255, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)", color: "#ffffff", padding: "clamp(14px, 2.2vw, 22px)", borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                        <div style={{ width: 42, height: 42, borderRadius: 10, background: "rgba(255, 255, 255, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                             <Percent size={22} color="#818cf8" />
                         </div>
-                        <div>
-                            <div style={{ fontSize: 18, fontWeight: 800 }}>Vama Invoice Bill Margin &amp; Price Markup</div>
-                            <div style={{ fontSize: 12, opacity: 0.85 }}>Add markup percentage or profit margin to your bills to calculate selling price and quotations.</div>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: "clamp(15px, 2vw, 18px)", fontWeight: 800 }}>Vama Invoice Bill Margin &amp; Price Markup</div>
+                            <div style={{ fontSize: "clamp(11px, 1.3vw, 12.5px)", opacity: 0.85 }}>Add markup percentage or profit margin to your bills to calculate selling price and quotations.</div>
                         </div>
                     </div>
                 </div>
 
                 {/* Top Controls: Choose Bill Source & Margin Settings */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14 }}>
                     {/* Panel 1: Bill Selector */}
                     <div className="card" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
@@ -428,41 +428,41 @@ export default function MarginIndex({ invoices = [], purchases = [], inventoryLi
                 </div>
 
                 {/* Profit Analytics Cards */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+                <div className="stats-grid" style={{ marginBottom: 14 }}>
                     <div className="stat-card">
                         <div className="stat-label">Base Cost / Bill Price</div>
                         <div className="stat-value">₹{toMoney(baseCost)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Original bill cost</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Original bill cost</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--success)" }}>
                         <div className="stat-label">Profit Added (+Margin)</div>
                         <div className="stat-value" style={{ color: "var(--success)" }}>+₹{toMoney(marginAmount)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Total profit earned</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Total profit earned</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid var(--accent)", background: "var(--accent-muted)" }}>
                         <div className="stat-label" style={{ color: "var(--accent)" }}>Final Marked-Up Price</div>
                         <div className="stat-value" style={{ color: "var(--accent)" }}>₹{toMoney(finalSellingPrice)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Customer quote / selling price</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Customer quote / selling price</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid #8b5cf6" }}>
                         <div className="stat-label">Gross Margin %</div>
                         <div className="stat-value" style={{ color: "#7c3aed" }}>{grossMarginPercent.toFixed(1)}%</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Profit &divide; Selling Price</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Profit &divide; Selling Price</div>
                     </div>
 
                     <div className="stat-card" style={{ borderLeft: "4px solid #0284c7" }}>
                         <div className="stat-label">Markup %</div>
                         <div className="stat-value" style={{ color: "#0284c7" }}>{markupPercent.toFixed(1)}%</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Profit &divide; Cost Price</div>
+                        <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Profit &divide; Cost Price</div>
                     </div>
                 </div>
 
                 {/* Item-Wise Breakdown Table */}
                 {itemBreakdown.length > 0 && (
-                    <div className="card" style={{ padding: 16 }}>
+                    <div className="card responsive-card">
                         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <span>Itemized Markup Breakdown &amp; Inventory Sync</span>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{itemBreakdown.length} items calculated with +{marginPercent}% margin</span>

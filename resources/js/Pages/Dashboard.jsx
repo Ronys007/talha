@@ -1,5 +1,6 @@
 import AppLayout from "@/Layouts/AppLayout";
 import { Link, usePage, router } from "@inertiajs/react";
+import TableActionDropdown, { ActionItem } from "@/Components/TableActionDropdown";
 import {
     ShoppingCart,
     Package,
@@ -922,26 +923,23 @@ export default function Dashboard({
             {/* ─── Active Store Management Hero Banner (When switched to an Admin) ─── */}
             {effectiveSwitchedAdmin && (
                 <div
+                    className="responsive-banner"
                     style={{
                         background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #4338ca 100%)",
                         borderRadius: 16,
-                        padding: "20px 24px",
+                        padding: "clamp(14px, 2.2vw, 22px)",
                         color: "#fff",
                         marginBottom: 20,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        flexWrap: "wrap",
-                        gap: 16,
                         boxShadow: "0 8px 24px rgba(49, 46, 129, 0.2)",
                     }}
                 >
-                    <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flex: "1 1 280px" }}>
                         <div
+                            className="responsive-banner-icon"
                             style={{
-                                width: 50,
-                                height: 50,
-                                borderRadius: 14,
+                                width: 46,
+                                height: 46,
+                                borderRadius: 12,
                                 background: "rgba(255, 255, 255, 0.15)",
                                 display: "flex",
                                 alignItems: "center",
@@ -950,11 +948,11 @@ export default function Dashboard({
                                 flexShrink: 0,
                             }}
                         >
-                            <Store size={26} color="#facc15" />
+                            <Store size={24} color="#facc15" />
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <span style={{ fontSize: 18, fontWeight: 800 }}>
+                                <span style={{ fontSize: "clamp(15px, 2vw, 18px)", fontWeight: 800 }}>
                                     🏪 Store Dashboard: {effectiveSwitchedAdmin.name}
                                 </span>
                                 <span
@@ -971,13 +969,13 @@ export default function Dashboard({
                                     Managing Store
                                 </span>
                             </div>
-                            <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
+                            <div className="superadmin-banner-subtitle" style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
                                 You are viewing and managing inventory, sales invoices, and purchases for <strong>{effectiveSwitchedAdmin.email}</strong>.
                             </div>
                         </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div className="superadmin-banner-actions" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                         <Link
                             href="/inventory"
                             className="btn"
@@ -1080,26 +1078,23 @@ export default function Dashboard({
                 <div style={{ marginBottom: 30 }}>
                     {/* Super Admin Hero Banner */}
                     <div
+                        className="responsive-banner superadmin-banner"
                         style={{
                             background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%)",
                             borderRadius: 16,
-                            padding: "22px 26px",
+                            padding: "clamp(14px, 2.2vw, 22px)",
                             color: "#fff",
                             marginBottom: 20,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            flexWrap: "wrap",
-                            gap: 16,
                             boxShadow: "0 10px 25px rgba(49, 46, 129, 0.25)",
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flex: "1 1 280px" }}>
                             <div
+                                className="responsive-banner-icon"
                                 style={{
-                                    width: 52,
-                                    height: 52,
-                                    borderRadius: 14,
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 12,
                                     background: "rgba(255, 255, 255, 0.15)",
                                     display: "flex",
                                     alignItems: "center",
@@ -1108,11 +1103,11 @@ export default function Dashboard({
                                     flexShrink: 0,
                                 }}
                             >
-                                <Shield size={28} color="#facc15" />
+                                <Shield size={26} color="#facc15" />
                             </div>
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                    <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em" }}>
+                                    <span style={{ fontSize: "clamp(15px, 2vw, 18px)", fontWeight: 800, letterSpacing: "-0.02em" }}>
                                         Super Admin Command Center
                                     </span>
                                     <span
@@ -1129,18 +1124,18 @@ export default function Dashboard({
                                         Root Access
                                     </span>
                                 </div>
-                                <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
+                                <div className="superadmin-banner-subtitle" style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
                                     Switch between any client store to check inventory, bills &amp; purchases, and manage hourly trials.
                                 </div>
                             </div>
                         </div>
 
                         {/* Top Action Buttons & Store Switcher Dropdown */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div className="superadmin-banner-actions" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                             {/* Fast Store Switcher */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.12)", padding: "6px 12px", borderRadius: 10, backdropFilter: "blur(8px)" }}>
+                            <div className="superadmin-store-switcher-box" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.12)", padding: "6px 12px", borderRadius: 10, backdropFilter: "blur(8px)" }}>
                                 <ArrowRightLeft size={16} color="#facc15" />
-                                <span style={{ fontSize: 12.5, fontWeight: 600 }}>Viewing Store:</span>
+                                <span className="superadmin-switcher-label" style={{ fontSize: 12.5, fontWeight: 600 }}>Viewing Store:</span>
                                 <select
                                     value={switchedAdmin?.id || 0}
                                     onChange={(e) => handleSwitchAdmin(e.target.value)}
@@ -1166,7 +1161,7 @@ export default function Dashboard({
 
                             <button
                                 type="button"
-                                className="btn"
+                                className="btn superadmin-create-admin-btn"
                                 onClick={() => setCreateModalOpen(true)}
                                 style={{
                                     background: "#fff",
@@ -1190,131 +1185,85 @@ export default function Dashboard({
                     </div>
 
                     {/* Super Admin Metric Cards */}
-                    <div
-                        style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                            gap: 16,
-                            marginBottom: 20,
-                        }}
-                    >
-                        <div
-                            className="stat-card"
-                            style={{
-                                background: "var(--bg-surface)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 14,
-                                padding: "18px 20px",
-                            }}
-                        >
+                    <div className="stats-grid" style={{ marginBottom: 16 }}>
+                        <div className="stat-card">
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                 <div>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4 }}>
+                                    <div className="stat-label">
                                         Total Client Admins
                                     </div>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: "var(--text-primary)" }}>
+                                    <div className="stat-value">
                                         {adminData?.totalAdmins ?? 0}
                                     </div>
                                 </div>
                                 <div
+                                    className="stat-icon"
                                     style={{
-                                        width: 44,
-                                        height: 44,
-                                        borderRadius: 12,
                                         background: "rgba(37, 99, 235, 0.12)",
                                         color: "#2563eb",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
                                     }}
                                 >
-                                    <Users size={22} />
+                                    <Users size={18} />
                                 </div>
                             </div>
-                            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
+                            <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4 }}>
                                 Total administrator accounts registered
                             </div>
                         </div>
 
-                        <div
-                            className="stat-card"
-                            style={{
-                                background: "var(--bg-surface)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 14,
-                                padding: "18px 20px",
-                            }}
-                        >
+                        <div className="stat-card">
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                 <div>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4 }}>
+                                    <div className="stat-label">
                                         Active Accounts
                                     </div>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: "#16a34a" }}>
+                                    <div className="stat-value" style={{ color: "#16a34a" }}>
                                         {adminData?.activeAdmins ?? 0}
                                     </div>
                                 </div>
                                 <div
+                                    className="stat-icon"
                                     style={{
-                                        width: 44,
-                                        height: 44,
-                                        borderRadius: 12,
                                         background: "rgba(22, 163, 74, 0.12)",
                                         color: "#16a34a",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
                                     }}
                                 >
-                                    <UserCheck size={22} />
+                                    <UserCheck size={18} />
                                 </div>
                             </div>
-                            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
+                            <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4 }}>
                                 Active trial hours or lifetime access
                             </div>
                         </div>
 
-                        <div
-                            className="stat-card"
-                            style={{
-                                background: "var(--bg-surface)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 14,
-                                padding: "18px 20px",
-                            }}
-                        >
+                        <div className="stat-card">
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                 <div>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4 }}>
+                                    <div className="stat-label">
                                         Locked / Expired Trials
                                     </div>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: "#dc2626" }}>
+                                    <div className="stat-value" style={{ color: "#dc2626" }}>
                                         {adminData?.lockedAdmins ?? 0}
                                     </div>
                                 </div>
                                 <div
+                                    className="stat-icon"
                                     style={{
-                                        width: 44,
-                                        height: 44,
-                                        borderRadius: 12,
                                         background: "rgba(220, 38, 38, 0.12)",
                                         color: "#dc2626",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
                                     }}
                                 >
-                                    <UserX size={22} />
+                                    <UserX size={18} />
                                 </div>
                             </div>
-                            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
+                            <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4 }}>
                                 Auto-locked due to expired hours or manual lock
                             </div>
                         </div>
                     </div>
 
                     {/* Admin Management Table */}
-                    <div className="card" style={{ padding: "20px 24px", overflow: "hidden" }}>
+                    <div className="card responsive-card" style={{ overflow: "hidden" }}>
                         <div
                             style={{
                                 display: "flex",
@@ -1577,114 +1526,55 @@ export default function Dashboard({
                                                         )}
                                                     </td>
 
-                                                    <td style={{ padding: "12px 12px", textAlign: "right" }}>
-                                                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                                            {/* Switch to this Admin Store */}
+                                                    <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                                                        <TableActionDropdown label="Actions" align="right">
                                                             {isCurrentlyViewing ? (
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm"
-                                                                    style={{
-                                                                        padding: "4px 8px",
-                                                                        fontSize: 11.5,
-                                                                        fontWeight: 700,
-                                                                        background: "#312e81",
-                                                                        color: "#fde047",
-                                                                        border: "none",
-                                                                    }}
+                                                                <ActionItem
+                                                                    icon={X}
+                                                                    label="Exit Store"
                                                                     onClick={() => handleSwitchAdmin(0)}
-                                                                    title="Exit store view and switch back to Super Admin root"
-                                                                >
-                                                                    <X size={13} /> Exit Store
-                                                                </button>
+                                                                    primary
+                                                                />
                                                             ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-secondary btn-sm"
-                                                                    style={{
-                                                                        padding: "4px 8px",
-                                                                        fontSize: 11.5,
-                                                                        fontWeight: 600,
-                                                                        color: "#312e81",
-                                                                        borderColor: "#c7d2fe",
-                                                                        background: "#e0e7ff",
-                                                                    }}
+                                                                <ActionItem
+                                                                    icon={Eye}
+                                                                    label="View Store"
                                                                     onClick={() => handleSwitchAdmin(admin.id)}
-                                                                    title="Switch to this admin to check their inventory, bills, and purchases"
-                                                                >
-                                                                    <Eye size={13} /> View Store
-                                                                </button>
+                                                                    primary
+                                                                />
                                                             )}
 
-                                                            {/* Lock / Unlock Toggle Button */}
-                                                            <button
-                                                                type="button"
-                                                                className={`btn btn-sm ${admin.is_locked ? "btn-primary" : "btn-secondary"}`}
-                                                                style={{
-                                                                    padding: "4px 8px",
-                                                                    fontSize: 11.5,
-                                                                    fontWeight: 600,
-                                                                    background: admin.is_locked ? "#16a34a" : undefined,
-                                                                    borderColor: admin.is_locked ? "#16a34a" : undefined,
-                                                                }}
+                                                            <ActionItem
+                                                                icon={admin.is_locked ? Unlock : Lock}
+                                                                label={admin.is_locked ? "Unlock Account" : "Lock Account"}
                                                                 onClick={() => handleToggleLock(admin)}
-                                                                title={admin.is_locked ? "Unlock this account" : "Lock this account"}
-                                                            >
-                                                                {admin.is_locked ? (
-                                                                    <>
-                                                                        <Unlock size={13} /> Unlock
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Lock size={13} /> Lock
-                                                                    </>
-                                                                )}
-                                                            </button>
+                                                            />
 
-                                                            {/* Manage Trial Hours Button */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-secondary btn-sm"
-                                                                style={{ padding: "4px 8px", fontSize: 11.5, fontWeight: 600 }}
+                                                            <ActionItem
+                                                                icon={Clock}
+                                                                label="Manage Hours"
                                                                 onClick={() => setTrialModalAdmin(admin)}
-                                                                title="Set or extend trial hours"
-                                                            >
-                                                                <Clock size={13} /> Hours
-                                                            </button>
+                                                            />
 
-                                                            {/* Edit Name & Email Button */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-secondary btn-sm"
-                                                                style={{ padding: "4px 8px", fontSize: 11.5, fontWeight: 600 }}
+                                                            <ActionItem
+                                                                icon={Edit3}
+                                                                label="Edit Admin"
                                                                 onClick={() => setEditAdminModal(admin)}
-                                                                title="Edit admin name & email"
-                                                            >
-                                                                <Edit3 size={13} />
-                                                            </button>
+                                                            />
 
-                                                            {/* Reset Password Button */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-secondary btn-sm"
-                                                                style={{ padding: "4px 8px", fontSize: 11.5, fontWeight: 600 }}
+                                                            <ActionItem
+                                                                icon={Key}
+                                                                label="Change Password"
                                                                 onClick={() => setPasswordModalAdmin(admin)}
-                                                                title="Change password"
-                                                            >
-                                                                <Key size={13} />
-                                                            </button>
+                                                            />
 
-                                                            {/* Delete Button */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-ghost btn-sm"
-                                                                style={{ padding: "4px 6px", color: "#ef4444" }}
+                                                            <ActionItem
+                                                                icon={Trash2}
+                                                                label="Delete Account"
                                                                 onClick={() => handleDeleteAdmin(admin)}
-                                                                title="Delete account permanently"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                        </div>
+                                                                danger
+                                                            />
+                                                        </TableActionDropdown>
                                                     </td>
                                                 </tr>
                                             );
@@ -1893,22 +1783,16 @@ export default function Dashboard({
                                 style={{
                                     background: card.bg,
                                     color: card.color,
-                                    width: 44,
-                                    height: 44,
-                                    borderRadius: 12,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
                                 }}
                             >
                                 {card.icon}
                             </div>
                             <div className="stat-value">{card.value}</div>
                             {card.breakdown ? (
-                                <div style={{ display: "grid", gap: 3, marginTop: 8 }}>
+                                <div className="stat-breakdown-wrap">
                                     {card.breakdown.map(([label, value]) => (
-                                        <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
-                                            <span style={{ color: "var(--text-muted)" }}>{label}</span>
+                                        <div key={label} className="stat-breakdown-row">
+                                            <span>{label}</span>
                                             <strong>
                                                 {card.label === "Total Purchases" || card.label === "Total Sales"
                                                     ? Number(value).toLocaleString("en-IN")
@@ -1928,7 +1812,7 @@ export default function Dashboard({
             {effectiveSwitchedAdmin && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, marginBottom: 24, marginTop: 16 }}>
                     {/* Recent Purchases of this Store */}
-                    <div className="card" style={{ padding: 20 }}>
+                    <div className="card responsive-card">
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(99, 102, 241, 0.12)", color: "#6366f1", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1994,7 +1878,7 @@ export default function Dashboard({
                     </div>
 
                     {/* Inventory Items of this Store */}
-                    <div className="card" style={{ padding: 20 }}>
+                    <div className="card responsive-card">
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(59, 130, 246, 0.12)", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2051,7 +1935,7 @@ export default function Dashboard({
                     </div>
 
                     {/* Recent sales invoices */}
-                    <div className="card" style={{ padding: 20 }}>
+                    <div className="card responsive-card">
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(34, 197, 94, 0.12)", color: "#16a34a", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2111,7 +1995,7 @@ export default function Dashboard({
 
             {/* ─── Lower Grid ─── */}
             <div className="dashboard-grid">
-                <div className="card" style={{ padding: 24 }}>
+                <div className="card responsive-card">
                     <h3
                         style={{
                             fontSize: 14,
@@ -2171,7 +2055,7 @@ export default function Dashboard({
                     </div>
                 </div>
 
-                <div className="card" style={{ padding: 24 }}>
+                <div className="card responsive-card">
                     <h3
                         style={{
                             fontSize: 14,

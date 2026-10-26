@@ -263,12 +263,6 @@ class InventoryController extends Controller
         return back()->with('success', 'Inventory deleted successfully.');
     }
 
-    // Legacy GET delete route
-    public function legacyDelete($id)
-    {
-        return $this->destroy($id);
-    }
-
     public function downloadTemplate()
     {
         $headers = [

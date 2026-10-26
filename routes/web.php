@@ -93,7 +93,6 @@ Route::middleware('auth')->group(function () {
 
         // Legacy Routes (backward compat)
         Route::get('/inventoryB', [InventoryController::class, 'index']);
-        Route::get('/inventory/{id}/delete', [InventoryController::class, 'legacyDelete']);
     });
 
     // ==================== Super Admin Routes ====================
@@ -127,8 +126,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/whatsapp/messages/{id}/recall', [\App\Http\Controllers\WhatsAppController::class, 'recallMessage'])->name('whatsapp.messages.recall');
 });
 
-// Quick Cache Clear & Diagnostics Route for Shared Hosting (Publicly accessible to easily fix cached config)
-Route::get('/clear-cache', function () {
+// Quick Cache Clear & Diagnostics Route for Shared Hosting (Protected by Super Admin Auth or APP_KEY token)
+Route::get('/clear-cache', function (\Illuminate\Http\Request $request) {
+    $token = $request->query('key');
+    $appKey = config('app.key');
+    $isAuthorized = (auth()->check() && auth()->user()->isSuperAdmin())
+        || (!empty($token) && !empty($appKey) && hash_equals($appKey, $token));
+
+    if (! $isAuthorized) {
+        abort(403, 'Unauthorized access to cache diagnostic tool.');
+    }
+
     try {
         \Illuminate\Support\Facades\Artisan::call('optimize:clear');
     } catch (\Throwable $e) {}
@@ -190,24 +198,53 @@ Route::get('/clear-cache', function () {
         'sidecar_health' => $sidecarHealth,
         'pdf_generator_status' => $pdfStatus,
         'hint' => ($sidecarUrl === 'http://127.0.0.1:3001' || empty($sidecarUrl))
-            ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL (e.g. https://aquamarine-horse-881573.hostingersite.com) and re-open this link.'
+            ? 'Your site is still pointing to localhost (127.0.0.1:3001). Please update WHATSAPP_SIDECAR_URL in your .env file with your cloud hosting URL and re-open this link.'
             : 'Sidecar URL configured and auto-secured with HTTPS!'
     ]);
 });
 
-// Web Cron / Trigger Route for automated WhatsApp due payment & purchase reminders
-Route::get('/cron/send-reminders', function () {
+// Web Cron / Trigger Route for automated WhatsApp due payment & purchase reminders (Token-Protected)
+Route::get('/cron/send-reminders', function (\Illuminate\Http\Request $request) {
+    $cronSecret = env('CRON_SECRET');
+    $token = $request->query('token') ?: ($request->query('key') ?: $request->header('X-Cron-Token'));
+    $appKey = config('app.key');
+
+    $isValid = false;
+    if (!empty($cronSecret) && !empty($token) && hash_equals((string)$cronSecret, (string)$token)) {
+        $isValid = true;
+    } elseif (!empty($appKey) && !empty($token) && hash_equals(substr((string)$appKey, -16), (string)$token)) {
+        $isValid = true;
+    } elseif (auth()->check() && (auth()->user()->isSuperAdmin() || auth()->user()->isAdmin())) {
+        $isValid = true;
+    }
+
+    if (! $isValid) {
+        return response()->json([
+            'success' => false,
+            'error' => 'Unauthorized: Missing or invalid cron authorization token.',
+            'hint' => 'Provide ?token=' . ($cronSecret ? 'YOUR_CRON_SECRET' : 'YOUR_APP_KEY_SUFFIX') . ' or login as Admin to run.'
+        ], 403);
+    }
+
+    $commandParams = [];
+    if ($request->boolean('dry_run') || $request->query('dry_run') === '1' || $request->query('dry-run') === '1') {
+        $commandParams['--dry-run'] = true;
+    }
+    if ($request->boolean('force') || $request->query('force') === '1') {
+        $commandParams['--force'] = true;
+    }
+
     $salesOutput = '';
     $purchaseOutput = '';
     try {
-        \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders');
+        \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders', $commandParams);
         $salesOutput = trim(\Illuminate\Support\Facades\Artisan::output());
     } catch (\Throwable $e) {
         $salesOutput = 'Error: ' . $e->getMessage();
     }
 
     try {
-        \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
+        \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders', $commandParams);
         $purchaseOutput = trim(\Illuminate\Support\Facades\Artisan::output());
     } catch (\Throwable $e) {
         $purchaseOutput = 'Error: ' . $e->getMessage();
@@ -215,6 +252,8 @@ Route::get('/cron/send-reminders', function () {
 
     return response()->json([
         'success' => true,
+        'mode' => !empty($commandParams['--dry-run']) ? 'dry_run' : 'live',
+        'force' => !empty($commandParams['--force']),
         'timestamp' => now()->toIso8601String(),
         'sales_reminders' => $salesOutput,
         'purchase_reminders' => $purchaseOutput,

@@ -37,9 +37,30 @@ const PORT = process.env.PORT || process.env.WHATSAPP_SIDECAR_PORT || 3001;
 const HOST = process.env.HOST || process.env.WHATSAPP_SIDECAR_HOST || '0.0.0.0';
 const SECRET = process.env.WHATSAPP_SIDECAR_SECRET || 'vama_secret_change_me_in_prod';
 
+if (SECRET === 'vama_secret_change_me_in_prod') {
+    console.warn('⚠️  SECURITY WARNING: Using default WhatsApp sidecar secret. Please set WHATSAPP_SIDECAR_SECRET in production!');
+}
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+/**
+ * Validate URL to prevent Server-Side Request Forgery (SSRF)
+ */
+function isSafePublicUrl(urlString) {
+    try {
+        const parsed = new URL(urlString);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+        const host = parsed.hostname.toLowerCase();
+        if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return false;
+        if (host === '169.254.169.254' || host === 'metadata.google.internal') return false;
+        if (/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host)) return false;
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
@@ -437,7 +458,10 @@ app.post('/sessions/:id/send-message', async (req, res) => {
                 });
             }
         } else if (mediaUrl) {
-            // URL upload (Image or Document)
+            // URL upload (Image or Document) with SSRF validation
+            if (!isSafePublicUrl(mediaUrl)) {
+                return res.status(422).json({ success: false, error: 'Invalid or restricted media URL' });
+            }
             const docMime = mimetype || (mediaUrl.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
             const docName = fileName || (mediaUrl.split('/').pop() || 'File');
 

@@ -576,7 +576,7 @@ export default function WhatsAppHub({
             <div className="card page-full-card">
                 {/* ── Table Toolbar with Tabs on Left and Actions on Right ── */}
                 <div className="table-toolbar">
-                    <div className="toolbar-left" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    <div className="toolbar-left whatsapp-tabs-bar" style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {[
                             { id: "connect", label: "Device Link & QR", icon: Smartphone },
                             ...(isSuperAdmin ? [{ id: "templates", label: "Billing & UPI Templates", icon: Sliders }] : []),
@@ -1207,30 +1207,10 @@ export default function WhatsAppHub({
                 )}
 
                 {/* ══════════════════════════════════════════════════════════
-                    TAB 3: BROADCAST CAMPAIGNS (ANTI-BAN ENGINE)
+                    TAB 3: BROADCAST CAMPAIGNS
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "broadcasts" && (
                     <div style={{ padding: 18, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-                        {/* Anti-Ban Safety Notice */}
-                        <div style={{ padding: "12px 16px", borderLeft: "4px solid var(--success)", border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg-surface)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                                <ShieldCheck size={20} color="var(--success)" style={{ shrink: 0, marginTop: 2 }} />
-                                <div>
-                                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
-                                        Anti-Ban Protection Engine Active
-                                    </div>
-                                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
-                                        Broadcasts are queued with a <strong>randomized delay of 18 to 45 seconds</strong> between each recipient. Greetings are varied (<em>Namaste</em>, <em>Hello</em>, <em>Dear</em>) and capped at 150/day to prevent number blocking.
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div style={{ textAlign: "right" }}>
-                                <span style={{ fontSize: 11, color: "var(--text-muted)", display: "block" }}>Daily Quota Used:</span>
-                                <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>{usedToday} / {dailyLimit}</strong>
-                            </div>
-                        </div>
-
                         {/* Top Card: Merchant UPI & Google Review Configuration */}
                         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
@@ -1448,11 +1428,11 @@ export default function WhatsAppHub({
                                         />
                                         <label
                                             htmlFor="broadcast-image-input"
-                                            className="btn btn-secondary"
+                                            className="btn btn-secondary broadcast-upload-btn"
                                             style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
                                         >
-                                            <Upload size={14} />
-                                            <span>{imagePreview ? "Change File" : "Choose File to Attach (Images, PDF, Documents up to 15MB)"}</span>
+                                            <Upload size={14} style={{ flexShrink: 0 }} />
+                                            <span>{imagePreview ? "Change Attached File" : "Attach File / Document (Max 15MB)"}</span>
                                         </label>
 
                                         {imagePreview && (
