@@ -45,4 +45,8 @@ return [
         'daily_broadcast_limit' => (int) env('WHATSAPP_DAILY_BROADCAST_LIMIT', 150),
     ],
 
+    'cron' => [
+        'secret' => env('CRON_SECRET', '4560a61722c5be98485f0917abb5aa18d0dec73f5cdd60e8'),
+    ],
+
 ];

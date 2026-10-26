@@ -25,7 +25,8 @@ import {
     Download,
     FileText,
     Printer,
-    Loader2
+    Loader2,
+    Zap
 } from "lucide-react";
 import TableActionDropdown, { ActionItem } from "@/Components/TableActionDropdown";
 
@@ -263,6 +264,7 @@ export default function PaymentRemindersIndex({ bills = [], summary = {}, busine
     const [updatingDueDateId, setUpdatingDueDateId] = useState(null);
     const [previewBill, setPreviewBill] = useState(null);
     const [generatingPdfId, setGeneratingPdfId] = useState(null);
+    const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
 
     // Auto-open wa.me link if fallback was triggered
     useEffect(() => {
@@ -559,6 +561,32 @@ ${bName}${phone}`;
         });
     }
 
+    async function handleTriggerRemindersNow() {
+        if (!confirm("Run automated WhatsApp payment reminders now for all customers whose invoices are due within 3 days or overdue?")) {
+            return;
+        }
+        setIsTriggeringReminders(true);
+        try {
+            const response = await fetch("/cron/send-reminders?format=json", {
+                headers: {
+                    "Accept": "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                }
+            });
+            const data = await response.json();
+            if (data.success) {
+                alert(`✓ Automated Reminders Executed!\n\nSales Reminders:\n${data.sales_reminders || "No eligible bills"}\n\nPurchase Reminders:\n${data.purchase_reminders || "No eligible bills"}`);
+                router.reload({ only: ['bills', 'summary'] });
+            } else {
+                alert(`Error: ${data.error || 'Failed to execute reminders'}`);
+            }
+        } catch (err) {
+            alert("Failed to trigger automated reminders: " + err.message);
+        } finally {
+            setIsTriggeringReminders(false);
+        }
+    }
+
     function handleRecordPaymentSubmit(e) {
         e.preventDefault();
         post("/payment-reminders/record-payment", {
@@ -649,6 +677,31 @@ ${bName}${phone}`;
                                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", display: "inline-block" }}></span>
                                 Auto WhatsApp Reminders Active (Daily when Due in ≤ 3 Days)
                             </div>
+
+                            <button
+                                type="button"
+                                disabled={isTriggeringReminders}
+                                onClick={handleTriggerRemindersNow}
+                                style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    fontSize: 12,
+                                    color: "#1e293b",
+                                    background: "#ffffff",
+                                    border: "1px solid #cbd5e1",
+                                    padding: "6px 12px",
+                                    borderRadius: 6,
+                                    fontWeight: 600,
+                                    cursor: isTriggeringReminders ? "not-allowed" : "pointer",
+                                    opacity: isTriggeringReminders ? 0.7 : 1,
+                                    transition: "0.2s",
+                                }}
+                                title="Run automated reminders immediately for all eligible sales & purchase bills"
+                            >
+                                <Zap size={13} color="#f59e0b" fill="#f59e0b" />
+                                {isTriggeringReminders ? "Sending Reminders..." : "Run Automation Now"}
+                            </button>
                         </div>
 
                         {/* Filter Tabs */}
