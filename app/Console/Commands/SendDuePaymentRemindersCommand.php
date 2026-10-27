@@ -98,6 +98,15 @@ class SendDuePaymentRemindersCommand extends Command
                     }
                 }
 
+                // Strict Security: Verify that the specific owner account (Admin or Super Admin) has their own WhatsApp connected
+                $ownerId = $whatsAppService->resolveOwnerId($invoice->user_id);
+                $sessionStatus = $whatsAppService->getSessionStatus($ownerId);
+                if (!$sessionStatus['success'] || ($sessionStatus['status'] ?? '') !== 'connected') {
+                    $this->warn("Skipping Invoice #{$invoice->invoice_number} - Store Owner (User ID {$ownerId}) has not linked their WhatsApp account. Auto-reminders will not send from an unlinked account.");
+                    $skippedCount++;
+                    continue;
+                }
+
                 $this->info("Dispatching reminder for Invoice #{$invoice->invoice_number} ({$invoice->customer_name}) - {$statusText} (Due Date: {$dueDate->format('d M Y')}, Due: ₹{$balanceDue})");
 
                 if ($isDryRun) {

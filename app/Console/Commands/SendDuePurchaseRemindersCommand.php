@@ -92,6 +92,14 @@ class SendDuePurchaseRemindersCommand extends Command
                     continue;
                 }
 
+                // Strict Security: Verify that the specific owner account (Admin or Super Admin) has their own WhatsApp connected
+                $sessionStatus = $whatsAppService->getSessionStatus($ownerId);
+                if (!$sessionStatus['success'] || ($sessionStatus['status'] ?? '') !== 'connected') {
+                    $this->warn("Skipping PO #{$billNo} - Store Owner (User ID {$ownerId}) has not linked their WhatsApp account. Auto-reminders will not send from an unlinked account.");
+                    $skippedCount++;
+                    continue;
+                }
+
                 // Avoid duplicate reminder on the same calendar day for the same purchase order, unless forced
                 if (!$isForce) {
                     $alreadySentToday = WhatsappMessageLog::where('purchase_order_id', $order->id)

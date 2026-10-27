@@ -319,24 +319,6 @@ app.get('/sessions/:id/status', async (req, res) => {
         }
     }
 
-    let isConnected = session && session.status === 'connected';
-    if (!isConnected) {
-        // If requested session is disconnected, check if another merchant/user session is connected
-        for (const [otherId, otherSess] of sessions.entries()) {
-            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
-                return res.json({
-                    success: true,
-                    sessionId: otherId,
-                    status: 'connected',
-                    phone: otherSess.phone,
-                    qr: null,
-                    lastActive: otherSess.lastActive,
-                    routedFrom: sessionId
-                });
-            }
-        }
-    }
-
     if (!session) {
         return res.json({
             success: true,
@@ -438,21 +420,11 @@ app.post('/sessions/:id/send-message', async (req, res) => {
     }
 
     if (!session || session.status !== 'connected' || !session.sock) {
-        // Fallback: If requested session is not connected, route through any active connected session
-        for (const [otherId, otherSess] of sessions.entries()) {
-            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
-                logger.info({ requested: sessionId, using: otherId }, 'Routing message through active connected session');
-                session = otherSess;
-                break;
-            }
-        }
-    }
-
-    if (!session || session.status !== 'connected' || !session.sock) {
         return res.status(503).json({
             success: false,
-            error: 'WhatsApp session is not connected',
-            status: session?.status || 'disconnected'
+            error: `WhatsApp account for ${sessionId} is not connected. Both Admin and Super Admin must link their own WhatsApp account before messages can be sent.`,
+            status: session?.status || 'disconnected',
+            sessionId: sessionId
         });
     }
 
@@ -585,21 +557,11 @@ app.post('/sessions/:id/recall-message', async (req, res) => {
     }
 
     if (!session || session.status !== 'connected' || !session.sock) {
-        // Fallback: If requested session is not connected, route through any active connected session
-        for (const [otherId, otherSess] of sessions.entries()) {
-            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
-                logger.info({ requested: sessionId, using: otherId }, 'Routing message through active connected session');
-                session = otherSess;
-                break;
-            }
-        }
-    }
-
-    if (!session || session.status !== 'connected' || !session.sock) {
         return res.status(503).json({
             success: false,
-            error: 'WhatsApp session is not connected',
-            status: session?.status || 'disconnected'
+            error: `WhatsApp account for ${sessionId} is not connected. Both Admin and Super Admin must link their own WhatsApp account before messages can be sent.`,
+            status: session?.status || 'disconnected',
+            sessionId: sessionId
         });
     }
 
