@@ -824,14 +824,14 @@ async function triggerLaravelReminders(type = 'all', targetDomain = null) {
 /**
  * Automated WhatsApp Reminder Scheduler for India Standard Time (Asia/Kolkata)
  * Runs 24/7 inside Node.js:
- *  - 6:00 PM IST (18:00) -> Customer Sales Invoices Reminders (PDF + UPI QR + Review QR)
- *  - 6:00 PM IST (18:00) -> Admin Purchase Bills Reminders (Statement PDF only)
+ *  - 6:15 PM IST (18:15) -> Customer Sales Invoices Reminders (PDF + UPI QR + Review QR)
+ *  - 6:15 PM IST (18:15) -> Admin Purchase Bills Reminders (Statement PDF only)
  */
 let lastTriggeredDateSales = null;
 let lastTriggeredDatePurchase = null;
 
 function startReminderCron() {
-    logger.info('🕒 Automated WhatsApp Reminder Cron started (Target: 6:00 PM IST for Sales Reminders & 6:00 PM IST for Purchase Reminders)');
+    logger.info('🕒 Automated WhatsApp Reminder Cron started (Target: 6:15 PM IST for Sales Reminders & 6:15 PM IST for Purchase Reminders)');
 
     setInterval(async () => {
         try {
@@ -843,17 +843,17 @@ function startReminderCron() {
             const hour = parseInt(hourStr, 10);
             const minute = parseInt(minuteStr, 10);
 
-            // 1. Sales Invoices Due Reminders: Exactly 6:00 PM IST (18:00)
-            if (hour === 18 && minute === 0 && lastTriggeredDateSales !== istDateStr) {
+            // 1. Sales Invoices Due Reminders: Exactly 6:15 PM IST (18:15)
+            if (hour === 18 && minute === 15 && lastTriggeredDateSales !== istDateStr) {
                 lastTriggeredDateSales = istDateStr;
-                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:00 PM IST! Triggering Customer Sales Reminders for invoice.vamalabs.in...');
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:15 PM IST! Triggering Customer Sales Reminders for invoice.vamalabs.in...');
                 await triggerLaravelReminders('sales');
             }
 
-            // 2. Purchase Bills Due Reminders: Exactly 6:00 PM IST (18:00)
-            if (hour === 18 && minute === 0 && lastTriggeredDatePurchase !== istDateStr) {
+            // 2. Purchase Bills Due Reminders: Exactly 6:15 PM IST (18:15)
+            if (hour === 18 && minute === 15 && lastTriggeredDatePurchase !== istDateStr) {
                 lastTriggeredDatePurchase = istDateStr;
-                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:00 PM IST! Triggering Admin Purchase Reminders for invoice.vamalabs.in...');
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:15 PM IST! Triggering Admin Purchase Reminders for invoice.vamalabs.in...');
                 await triggerLaravelReminders('purchases');
             }
         } catch (cronErr) {
