@@ -397,5 +397,6 @@ HTML, 200);
 
 // ==================== Public Signed/Hashed Invoice Route ====================
 Route::get('/i/{hash}', [\App\Http\Controllers\PublicInvoiceController::class, 'show'])->name('invoice.public');
+Route::get('/pay/{hash}', [\App\Http\Controllers\PublicInvoiceController::class, 'pay'])->name('invoice.pay');
 
 require __DIR__.'/auth.php';

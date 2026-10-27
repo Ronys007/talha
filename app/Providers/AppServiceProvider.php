@@ -38,13 +38,14 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Automatic WhatsApp Daily Reminder Heartbeat Runner (for Shared Hosting)
-        // Automatically triggers the daily reminder dispatches once per day after 10:00 AM IST
+        // Automatically triggers the daily reminder dispatches once per day after 11:15 AM IST
         // completely in the background without needing any manual human interaction or button clicks.
         if (!app()->runningInConsole() && !app()->runningUnitTests()) {
             app()->terminating(function () {
                 try {
                     $now = \Carbon\Carbon::now(config('app.timezone', 'Asia/Kolkata'));
-                    if ($now->hour >= 10) {
+                    $isPast1115 = ($now->hour > 11) || ($now->hour === 11 && $now->minute >= 15);
+                    if ($isPast1115) {
                         $todayDate = $now->toDateString();
                         $cacheKey = "whatsapp_auto_reminders_dispatched_{$todayDate}";
 
@@ -53,7 +54,9 @@ class AppServiceProvider extends ServiceProvider
                             if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
                                 \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addHours(3));
                                 \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders');
-                                \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
+                                if (($now->hour > 11) || ($now->hour === 11 && $now->minute >= 30)) {
+                                    \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
+                                }
                             }
                             $lock->release();
                         }

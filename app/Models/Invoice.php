@@ -39,6 +39,7 @@ class Invoice extends Model
         'round_off',
         'total_amount',
         'paid_amount',
+        'payment_qr_scans',
         'paid_at',
         'notes',
         'terms',

@@ -281,6 +281,19 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Dynamic QR Code image generator endpoint
+app.get('/qr', async (req, res) => {
+    const text = req.query.text;
+    if (!text) return res.status(400).send('text query parameter is required');
+    try {
+        const qrBuffer = await QRCode.toBuffer(text, { width: 400, margin: 2, errorCorrectionLevel: 'M' });
+        res.setHeader('Content-Type', 'image/png');
+        return res.send(qrBuffer);
+    } catch (e) {
+        return res.status(500).send(e.message);
+    }
+});
+
 // All /sessions routes protected by authMiddleware
 app.use('/sessions', authMiddleware);
 

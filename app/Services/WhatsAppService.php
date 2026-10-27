@@ -499,6 +499,42 @@ class WhatsAppService
     }
 
     /**
+     * Generate Base64 encoded PNG for a QR code from text/URL.
+     */
+    public function generateQrCodeBase64(string $text, int $size = 400): string
+    {
+        $encoded = urlencode($text);
+
+        // 1. Try local sidecar endpoint first
+        try {
+            $res = Http::withHeaders(['X-Whatsapp-Secret' => $this->secret])
+                ->timeout(3)
+                ->get("{$this->sidecarUrl}/qr?text={$encoded}");
+            if ($res->successful() && strlen($res->body()) > 80) {
+                return base64_encode($res->body());
+            }
+        } catch (\Throwable $e) {}
+
+        // 2. High-reliability fallback: api.qrserver.com
+        try {
+            $res = Http::timeout(5)->get("https://api.qrserver.com/v1/create-qr-code/?size={$size}x{$size}&margin=10&data={$encoded}");
+            if ($res->successful() && strlen($res->body()) > 80) {
+                return base64_encode($res->body());
+            }
+        } catch (\Throwable $e) {}
+
+        // 3. Fallback: quickchart.io
+        try {
+            $res = Http::timeout(5)->get("https://quickchart.io/qr?size={$size}&text={$encoded}");
+            if ($res->successful() && strlen($res->body()) > 80) {
+                return base64_encode($res->body());
+            }
+        } catch (\Throwable $e) {}
+
+        return '';
+    }
+
+    /**
      * Replace template placeholders with real invoice and merchant data
      */
     public function renderTemplate(string $template, array $data): string
@@ -506,19 +542,19 @@ class WhatsAppService
         $greetings = ['Hello', 'Dear Customer', 'Hi', 'Greetings'];
         $randomGreeting = $greetings[array_rand($greetings)];
 
-        // 1. Build payment section dynamically
-        $hasUpi = !empty($data['upi_link']);
+        // 1. Build payment section dynamically (QR notice instead of raw plain text UPI ID)
+        $hasUpi = !empty($data['upi_id']) || !empty($data['upi_link']);
         $due = (float) ($data['balance_due'] ?? 0);
         $paymentSection = '';
         if ($due > 0 && $hasUpi) {
-            $paymentSection = "\n\n⚡ *Quick UPI Pay:* \n" . $data['upi_link'];
+            $paymentSection = "\n\n💳 *Payment QR Code:* (Attached below - scan with GPay/PhonePe/Paytm to pay, valid for 2 scans)";
         }
 
-        // 2. Build review section dynamically (strictly only if user configured google review url)
+        // 2. Build review section dynamically (QR notice instead of raw review link)
         $hasReview = !empty($data['google_review_link']) && filter_var($data['google_review_link'], FILTER_VALIDATE_URL);
         $reviewSection = '';
         if ($hasReview) {
-            $reviewSection = "\n\n⭐ *Review Us on Google:* \n" . $data['google_review_link'];
+            $reviewSection = "\n\n⭐ *Google Review QR:* (Attached below - scan to rate us on Google)";
         }
 
         $replacements = [
@@ -532,8 +568,8 @@ class WhatsAppService
             '{recorded_amount}' => isset($data['recorded_amount']) ? number_format((float) str_replace(',', '', (string) $data['recorded_amount']), 2) : '0.00',
             '{settled_note}' => $data['settled_note'] ?? '',
             '{invoice_link}' => $data['invoice_link'] ?? '',
-            '{upi_link}' => $hasUpi ? $data['upi_link'] : '',
-            '{google_review_link}' => $hasReview ? $data['google_review_link'] : '',
+            '{upi_link}' => '',
+            '{google_review_link}' => '',
             '{payment_section}' => $paymentSection,
             '{review_section}' => $reviewSection,
             '{greeting}' => $data['greeting'] ?? $randomGreeting,
@@ -554,12 +590,10 @@ class WhatsAppService
 
         // Clean up legacy explicit tag mentions if UPI or Google Review is not configured
         if (!$hasUpi) {
-            // Remove standalone UPI link lines if user had a template with explicit label
-            $rendered = preg_replace('/(\r?\n)?.*(?:Quick UPI Pay|⚡ Direct UPI Pay Link|UPI).*\{?upi_link\}?.*(\r?\n)?/i', '', $rendered);
+            $rendered = preg_replace('/(\r?\n)?.*(?:Quick UPI Pay|⚡ Direct UPI Pay Link|UPI|Payment QR Code).*(\r?\n)?/i', '', $rendered);
         }
         if (!$hasReview) {
-            // Remove standalone Review link lines if user had a template with explicit label
-            $rendered = preg_replace('/(\r?\n)?.*(?:rate us on Google|Review Us on Google|Google Review).*\{?google_review_link\}?.*(\r?\n)?/i', '', $rendered);
+            $rendered = preg_replace('/(\r?\n)?.*(?:rate us on Google|Review Us on Google|Google Review).*(\r?\n)?/i', '', $rendered);
         }
 
         $rendered = preg_replace("/\n{3,}/", "\n\n", $rendered);
@@ -659,7 +693,8 @@ class WhatsAppService
             $pdfBytes = $this->generateInvoicePdf($invoice);
             $base64Pdf = base64_encode($pdfBytes);
 
-            return $this->sendDocument(
+            // 1. Dispatch official invoice / statement PDF document with invoice details caption
+            $sendDocResult = $this->sendDocument(
                 phone: $invoice->customer_phone,
                 fileUrlOrBase64: $base64Pdf,
                 fileName: $fileName,
@@ -669,6 +704,63 @@ class WhatsAppService
                 invoiceId: $invoice->id,
                 recipientName: $invoice->customer_name
             );
+
+            $due = max(0, (float) ($invoice->total_amount - ($invoice->paid_amount ?? 0)));
+            $profile = BusinessProfile::where('user_id', $ownerId)->first();
+
+            // 2. Dispatch Dynamic Payment QR Code image (Limited to 2 scans) if balance due > 0 and merchant has UPI ID
+            if ($due > 0.01 && !empty($profile?->upi_id)) {
+                try {
+                    $payUrl = url("/pay/{$invoice->invoice_hash}");
+                    $qrBase64 = $this->generateQrCodeBase64($payUrl);
+                    if (!empty($qrBase64)) {
+                        $qrCaption = "💳 *Payment QR Code - Invoice #{$invoice->invoice_number}*\n"
+                            . "💰 *Amount Due:* ₹" . number_format($due, 2) . "\n"
+                            . "🔒 *Security Notice:* Valid for *2 scans only*.\n"
+                            . "👉 Scan with Google Pay, PhonePe, Paytm, or BHIM to pay.";
+
+                        $this->sendDocument(
+                            phone: $invoice->customer_phone,
+                            fileUrlOrBase64: $qrBase64,
+                            fileName: "Payment_QR_{$invoice->invoice_number}.png",
+                            caption: $qrCaption,
+                            merchantId: $ownerId,
+                            triggerType: 'payment_qr',
+                            invoiceId: $invoice->id,
+                            recipientName: $invoice->customer_name
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch payment QR code for invoice #{$invoice->id}: " . $e->getMessage());
+                }
+            }
+
+            // 3. Dispatch Google Review QR Code image (Multiple scans allowed) if configured
+            if (!empty($profile?->google_review_url) && filter_var($profile->google_review_url, FILTER_VALIDATE_URL)) {
+                try {
+                    $reviewQrBase64 = $this->generateQrCodeBase64($profile->google_review_url);
+                    if (!empty($reviewQrBase64)) {
+                        $shopName = $invoice->seller_name ?: ($profile->business_name ?: 'Our Store');
+                        $reviewCaption = "⭐ *Google Review QR Code - {$shopName}*\n"
+                            . "Thank you for choosing us! Please scan this QR code with your camera to rate and review us on Google.";
+
+                        $this->sendDocument(
+                            phone: $invoice->customer_phone,
+                            fileUrlOrBase64: $reviewQrBase64,
+                            fileName: "Google_Review_QR_{$invoice->invoice_number}.png",
+                            caption: $reviewCaption,
+                            merchantId: $ownerId,
+                            triggerType: 'review_qr',
+                            invoiceId: $invoice->id,
+                            recipientName: $invoice->customer_name
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Failed to dispatch review QR code for invoice #{$invoice->id}: " . $e->getMessage());
+                }
+            }
+
+            return $sendDocResult;
         } catch (\Throwable $e) {
             Log::warning("PDF generation or WhatsApp document sending failed for invoice #{$invoice->id}: " . $e->getMessage());
             // Graceful fallback to text message
