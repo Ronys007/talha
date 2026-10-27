@@ -177,10 +177,39 @@ class WhatsAppService
 
             if ($response->successful()) {
                 $data = $response->json();
+                $actualSessionId = $data['sessionId'] ?? $sessionId;
+                $status = $data['status'] ?? 'disconnected';
+
+                // If primary session is disconnected, check if another merchant session is active & connected
+                if ($status !== 'connected' && !app()->environment('testing')) {
+                    $probeCandidates = [2, 1];
+                    foreach ($probeCandidates as $cId) {
+                        $cSession = "merchant_{$cId}";
+                        if ($cSession === $sessionId) continue;
+                        try {
+                            $cRes = Http::withHeaders(['X-Whatsapp-Secret' => $this->secret])
+                                ->timeout(4)
+                                ->get("{$this->sidecarUrl}/sessions/{$cSession}/status");
+                            if ($cRes->successful() && ($cRes->json()['status'] ?? '') === 'connected') {
+                                $cData = $cRes->json();
+                                return [
+                                    'success' => true,
+                                    'sessionId' => $cData['sessionId'] ?? $cSession,
+                                    'status' => 'connected',
+                                    'phone' => $cData['phone'] ?? null,
+                                    'qr' => null,
+                                    'lastActive' => $cData['lastActive'] ?? null,
+                                    'sidecar_url' => $this->sidecarUrl,
+                                ];
+                            }
+                        } catch (\Throwable $e) {}
+                    }
+                }
+
                 return [
                     'success' => true,
-                    'sessionId' => $sessionId,
-                    'status' => $data['status'] ?? 'disconnected',
+                    'sessionId' => $actualSessionId,
+                    'status' => $status,
                     'phone' => $data['phone'] ?? null,
                     'qr' => $data['qr'] ?? null,
                     'lastActive' => $data['lastActive'] ?? null,
@@ -304,12 +333,13 @@ class WhatsAppService
         // Attempt automated delivery via sidecar
         $status = $this->getSessionStatus($ownerId);
         $isSidecarConnected = ($status['success'] && ($status['status'] ?? '') === 'connected');
+        $targetSession = (!empty($status['sessionId']) && $isSidecarConnected) ? $status['sessionId'] : $sessionId;
 
         if ($isSidecarConnected) {
             try {
                 $response = Http::withHeaders([
                     'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$sessionId}/send-message", [
+                ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", [
                     'phone' => $formattedPhone,
                     'message' => $message,
                 ]);
@@ -393,6 +423,7 @@ class WhatsAppService
         $waMeUrl = $this->generateWaMeFallbackUrl($formattedPhone, $caption);
 
         $status = $this->getSessionStatus($ownerId);
+        $targetSession = (!empty($status['sessionId']) && ($status['status'] ?? '') === 'connected') ? $status['sessionId'] : $sessionId;
         if ($status['success'] && ($status['status'] ?? '') === 'connected') {
             try {
                 $lower = strtolower($fileName);
@@ -432,7 +463,7 @@ class WhatsAppService
 
                 $response = Http::withHeaders([
                     'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(20)->post("{$this->sidecarUrl}/sessions/{$sessionId}/send-message", $payload);
+                ])->timeout(20)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", $payload);
 
                 if ($response->successful() && ($response->json()['success'] ?? false)) {
                     $messageId = $response->json()['messageId'] ?? null;

@@ -306,6 +306,24 @@ app.get('/sessions/:id/status', async (req, res) => {
         }
     }
 
+    let isConnected = session && session.status === 'connected';
+    if (!isConnected) {
+        // If requested session is disconnected, check if another merchant/user session is connected
+        for (const [otherId, otherSess] of sessions.entries()) {
+            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
+                return res.json({
+                    success: true,
+                    sessionId: otherId,
+                    status: 'connected',
+                    phone: otherSess.phone,
+                    qr: null,
+                    lastActive: otherSess.lastActive,
+                    routedFrom: sessionId
+                });
+            }
+        }
+    }
+
     if (!session) {
         return res.json({
             success: true,
@@ -402,6 +420,17 @@ app.post('/sessions/:id/send-message', async (req, res) => {
                 }
             } catch (e) {
                 logger.warn({ sessionId, err: e.message }, 'Failed to on-demand reconnect session');
+            }
+        }
+    }
+
+    if (!session || session.status !== 'connected' || !session.sock) {
+        // Fallback: If requested session is not connected, route through any active connected session
+        for (const [otherId, otherSess] of sessions.entries()) {
+            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
+                logger.info({ requested: sessionId, using: otherId }, 'Routing message through active connected session');
+                session = otherSess;
+                break;
             }
         }
     }
@@ -538,6 +567,17 @@ app.post('/sessions/:id/recall-message', async (req, res) => {
                 }
             } catch (e) {
                 logger.warn({ sessionId, err: e.message }, 'Failed to on-demand reconnect session');
+            }
+        }
+    }
+
+    if (!session || session.status !== 'connected' || !session.sock) {
+        // Fallback: If requested session is not connected, route through any active connected session
+        for (const [otherId, otherSess] of sessions.entries()) {
+            if (otherSess && otherSess.status === 'connected' && otherSess.sock) {
+                logger.info({ requested: sessionId, using: otherId }, 'Routing message through active connected session');
+                session = otherSess;
+                break;
             }
         }
     }

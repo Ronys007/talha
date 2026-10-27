@@ -51,7 +51,7 @@ class AppServiceProvider extends ServiceProvider
                         $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$cacheKey}", 60);
                         if ($lock->get()) {
                             if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
-                                \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addHours(24));
+                                \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addHours(3));
                                 \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders');
                                 \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
                             }
