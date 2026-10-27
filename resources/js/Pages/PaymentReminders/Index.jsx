@@ -214,7 +214,7 @@ function PrintBillReminderModal({ bill, business = {}, onClose }) {
                             <div style={{ flex: 1, background: "#f8fafc", padding: 12, borderRadius: 6, fontSize: 12 }}>
                                 <div style={{ fontWeight: 700, color: "#1e1b4b", marginBottom: 6 }}>Bank &amp; Payment Transfer Details:</div>
                                 {business.bank_name && <div><strong>Bank:</strong> {business.bank_name}</div>}
-                                {business.upi_id && <div><strong>A/C No / UPI:</strong> {business.upi_id}</div>}
+                                {business.bank_account_number && <div><strong>A/C No:</strong> {business.bank_account_number}</div>}
                                 {business.ifsc && <div><strong>IFSC:</strong> {business.ifsc}</div>}
                                 <div style={{ marginTop: 8, color: "#64748b", fontStyle: "italic" }}>
                                     Kindly make the payment before the due date and share transaction reference.
@@ -311,7 +311,7 @@ export default function PaymentRemindersIndex({ bills = [], summary = {}, busine
             ? bill.seller_name
             : (business.name && business.name !== "Super Admin" ? business.name : "Admin");
         const phone = (bill.seller_phone || business.phone) ? ` (${bill.seller_phone || business.phone})` : "";
-        const upi = business.upi_id ? `\nUPI / Bank: ${business.upi_id}` : "";
+        const bankInfo = business.bank_account_number ? `\nA/C No: ${business.bank_account_number}` : "";
 
         return `Dear ${bill.customer_name}, greetings from ${bName}!
 
@@ -322,7 +322,7 @@ This is a payment reminder regarding Bill #${bill.bill_number} dated ${formatDat
 • Pending Balance Due: ₹${toMoney(bill.balance_due)}
 • Payment Due Date: ${formatDate(bill.due_date)}
 
-Please find the official statement PDF attached. Kindly clear the pending balance at your earliest convenience.${upi}
+Please find the official statement PDF attached. Kindly clear the pending balance at your earliest convenience.${bankInfo}
 
 Thank you,
 ${bName}${phone}`;
@@ -453,7 +453,7 @@ ${bName}${phone}`;
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(9);
         if (business.bank_name) pdf.text(`Bank: ${business.bank_name}`, 40, currY + 34);
-        if (business.upi_id) pdf.text(`A/C / UPI: ${business.upi_id}`, 40, currY + 48);
+        if (business.bank_account_number) pdf.text(`A/C No: ${business.bank_account_number}`, 40, currY + 48);
         if (business.ifsc) pdf.text(`IFSC: ${business.ifsc}`, 40, currY + 62);
         pdf.text("Please clear pending dues on or before due date.", 40, currY + 76);
 

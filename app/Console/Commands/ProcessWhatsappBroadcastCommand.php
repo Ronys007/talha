@@ -121,19 +121,13 @@ class ProcessWhatsappBroadcastCommand extends Command
 
                 $randomGreeting = $greetings[array_rand($greetings)];
                 $due = (float) ($recipient['balance_due'] ?? 0);
-                $upiLink = '';
-                if (!empty($profile?->upi_id)) {
-                    $upiLink = $due > 0 
-                        ? $whatsAppService->generateUpiPayUrl($profile->upi_id, $shopName, $due, '') 
-                        : "upi://pay?pa={$profile->upi_id}&pn=" . rawurlencode($shopName) . "&cu=INR";
-                }
 
                 $personalizedMessage = $whatsAppService->renderTemplate($broadcast->message_template, [
                     'customer_name' => $customerName,
                     'shop_name' => $shopName,
                     'balance_due' => number_format($due, 2),
                     'greeting' => $randomGreeting,
-                    'upi_link' => $upiLink,
+                    'upi_link' => '',
                     'google_review_link' => $profile?->google_review_url ?: '',
                 ]);
 

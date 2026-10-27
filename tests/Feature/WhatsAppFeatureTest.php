@@ -89,7 +89,6 @@ class WhatsAppFeatureTest extends TestCase
                 ->component('PublicInvoice/Show')
                 ->where('invoice.invoice_number', 'INV-2026-TEST1')
                 ->where('summary.balance_due', 1000)
-                ->where('summary.upi_id', 'vama@okhdfcbank')
                 ->where('summary.shop_name', 'Shree Vama Traders')
             );
     }
@@ -99,7 +98,7 @@ class WhatsAppFeatureTest extends TestCase
         $user = User::factory()->create();
 
         Http::fake([
-            'http://127.0.0.1:3001/sessions/*' => Http::response(null, 500),
+            '*/sessions/*' => Http::response(null, 500),
         ]);
 
         $service = app(WhatsAppService::class);
@@ -193,7 +192,7 @@ class WhatsAppFeatureTest extends TestCase
         $user = User::factory()->create();
 
         Http::fake([
-            'http://127.0.0.1:3001/sessions/*' => Http::response(null, 500),
+            '*/sessions/*' => Http::response(null, 500),
         ]);
 
         $payload = [
@@ -249,7 +248,7 @@ class WhatsAppFeatureTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:3001/sessions/*' => Http::response(null, 500),
+            '*/sessions/*' => Http::response(null, 500),
         ]);
 
         $updatePayload = [

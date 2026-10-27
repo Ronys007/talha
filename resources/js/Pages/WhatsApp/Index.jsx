@@ -72,7 +72,6 @@ export default function WhatsAppHub({
     const [logStatusFilter, setLogStatusFilter] = useState("all");
     const [recallingId, setRecallingId] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
-    const [upiId, setUpiId] = useState(profile?.upi_id || "");
     const [googleReviewUrl, setGoogleReviewUrl] = useState(profile?.google_review_url || "");
     const [profileSaving, setProfileSaving] = useState(false);
     const fileInputRef = useRef(null);
@@ -85,7 +84,6 @@ export default function WhatsAppHub({
 
     // Templates form
     const templatesForm = useForm({
-        upi_id: profile?.upi_id || "",
         google_review_url: profile?.google_review_url || "",
         templates: {
             bill_created: {
@@ -311,13 +309,11 @@ export default function WhatsAppHub({
                     "X-CSRF-TOKEN": csrfToken || "",
                 },
                 body: JSON.stringify({
-                    upi_id: upiId,
                     google_review_url: googleReviewUrl,
                 }),
             });
             const data = await res.json();
             if (data.success) {
-                templatesForm.setData("upi_id", upiId);
                 templatesForm.setData("google_review_url", googleReviewUrl);
                 router.reload({ only: ["profile"] });
             }
@@ -402,7 +398,6 @@ export default function WhatsAppHub({
         { tag: "{total_amount}", desc: "Grand Total" },
         { tag: "{paid_amount}", desc: "Amount Paid" },
         { tag: "{balance_due}", desc: "Pending Balance" },
-        { tag: "{payment_section}", desc: "Dynamic UPI Link (Shows only if balance due & UPI configured)" },
         { tag: "{review_section}", desc: "Google Review Link (Shows only if configured in profile)" },
     ];
 
@@ -410,10 +405,8 @@ export default function WhatsAppHub({
 
     // Simulated phone message preview
     const previewMessage = useMemo(() => {
-        const hasUpi = Boolean(templatesForm.data.upi_id || profile?.upi_id);
         const hasReview = Boolean(templatesForm.data.google_review_url || profile?.google_review_url);
 
-        const dummyPaymentSection = hasUpi ? "\n\n⚡ *Quick UPI Pay:* \nupi://pay?pa=store@upi&am=3500.00" : "";
         const dummyReviewSection = hasReview ? "\n\n⭐ *Review Us on Google:* \n" + (templatesForm.data.google_review_url || profile?.google_review_url || "https://g.page/r/sample/review") : "";
 
         if (selectedTemplateTab === "purchase_reminder") {
@@ -438,11 +431,11 @@ export default function WhatsAppHub({
             .replace(/{paid_amount}/g, selectedTemplateTab === "bill_paid" ? "4,500.00" : "1,000.00")
             .replace(/{balance_due}/g, selectedTemplateTab === "bill_paid" ? "0.00" : "3,500.00")
             .replace(/{invoice_link}/g, "")
-            .replace(/{payment_section}/g, selectedTemplateTab === "bill_paid" ? "" : dummyPaymentSection)
+            .replace(/{payment_section}/g, "")
             .replace(/{review_section}/g, dummyReviewSection)
-            .replace(/{upi_link}/g, hasUpi ? "upi://pay?pa=store@upi&am=3500.00" : "")
+            .replace(/{upi_link}/g, "")
             .replace(/{google_review_link}/g, hasReview ? (templatesForm.data.google_review_url || profile?.google_review_url) : "");
-    }, [currentTemplateMessage, profile, selectedTemplateTab, templatesForm.data.upi_id, templatesForm.data.google_review_url]);
+    }, [currentTemplateMessage, profile, selectedTemplateTab, templatesForm.data.google_review_url]);
 
     const formatLogPhone = (raw) => {
         if (!raw) return "-";
@@ -579,7 +572,7 @@ export default function WhatsAppHub({
                     <div className="toolbar-left whatsapp-tabs-bar" style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {[
                             { id: "connect", label: "Device Link & QR", icon: Smartphone },
-                            ...(isSuperAdmin ? [{ id: "templates", label: "Billing & UPI Templates", icon: Sliders }] : []),
+                            ...(isSuperAdmin ? [{ id: "templates", label: "Billing Templates", icon: Sliders }] : []),
                             { id: "broadcasts", label: "Broadcast Campaigns", icon: Send, badge: broadcastList.some((b) => b.status === "processing") },
                             { id: "logs", label: `Message Logs (${logs?.total || 0})`, icon: Clock },
                         ].map((tab) => {
@@ -981,35 +974,19 @@ export default function WhatsAppHub({
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "templates" && isSuperAdmin && (
                     <form onSubmit={handleSaveTemplates} style={{ padding: 18, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-                        {/* Top Card: Merchant UPI & Google Review Settings */}
+                        {/* Top Card: Google Review Settings */}
                         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
                             <div>
                                 <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
-                                    <IndianRupee size={16} color="var(--success)" /> Merchant UPI &amp; Google Review Configuration
+                                    <Star size={16} color="var(--warning)" /> Google Review Configuration
                                 </div>
                                 <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
-                                    These links are automatically attached into invoice notifications and payment reminders for instant customer collection.
+                                    Included on bill notifications and paid receipts so customers can rate your business on Google in 1 click.
                                 </div>
                             </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-                                <div className="form-group">
-                                    <label className="form-label" style={{ fontWeight: 600 }}>
-                                        Merchant UPI ID (GPay / PhonePe / Paytm VPA)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
-                                        value={templatesForm.data.upi_id}
-                                        onChange={(e) => templatesForm.setData("upi_id", e.target.value)}
-                                    />
-                                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                                        Customers tap this link to open their UPI app with the exact invoice balance pre-filled.
-                                    </span>
-                                </div>
-
-                                <div className="form-group">
+                            <div>
+                                <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label className="form-label" style={{ fontWeight: 600 }}>
                                         Google Maps Review URL
                                     </label>
@@ -1020,7 +997,7 @@ export default function WhatsAppHub({
                                         value={templatesForm.data.google_review_url}
                                         onChange={(e) => templatesForm.setData("google_review_url", e.target.value)}
                                     />
-                                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, display: "block" }}>
                                         Included on paid bills so happy customers can rate your business on Google in 1 click.
                                     </span>
                                 </div>
@@ -1211,15 +1188,15 @@ export default function WhatsAppHub({
                    ══════════════════════════════════════════════════════════ */}
                 {activeTab === "broadcasts" && (
                     <div style={{ padding: 18, flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-                        {/* Top Card: Merchant UPI & Google Review Configuration */}
+                        {/* Top Card: Google Review Configuration */}
                         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: 12 }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                                 <div>
                                     <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
-                                        <IndianRupee size={16} color="var(--success)" /> Merchant UPI &amp; Google Review Configuration
+                                        <Star size={16} color="var(--warning)" /> Google Review Configuration
                                     </div>
                                     <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
-                                        Configure your UPI ID and Google Review URL to easily include payment and review links in your broadcast campaigns and invoices.
+                                        Configure your Google Review URL to easily include review links in your broadcast campaigns and invoices.
                                     </div>
                                 </div>
                                 <button
@@ -1234,26 +1211,7 @@ export default function WhatsAppHub({
                                 </button>
                             </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                    <label className="form-label" style={{ fontWeight: 600 }}>
-                                        Merchant UPI ID (GPay / PhonePe / Paytm VPA)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="e.g. shopname@okhdfcbank or 9876543210@paytm"
-                                        value={upiId}
-                                        onChange={(e) => {
-                                            setUpiId(e.target.value);
-                                            templatesForm.setData("upi_id", e.target.value);
-                                        }}
-                                    />
-                                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, display: "block" }}>
-                                        Used by <code>&#123;payment_section&#125;</code> and <code>&#123;upi_link&#125;</code> for instant UPI collections.
-                                    </span>
-                                </div>
-
+                            <div>
                                 <div className="form-group" style={{ marginBottom: 0 }}>
                                     <label className="form-label" style={{ fontWeight: 600 }}>
                                         Google Review / Maps Link
@@ -1496,9 +1454,7 @@ export default function WhatsAppHub({
                                             { tag: "{shop_name}", label: "Shop Name" },
                                             { tag: "{greeting}", label: "Random Greeting" },
                                             { tag: "{balance_due}", label: "Pending Balance" },
-                                            { tag: "{payment_section}", label: "UPI Pay Link" },
                                             { tag: "{review_section}", label: "Google Review Link" },
-                                            { tag: "{upi_link}", label: "Raw UPI URL" },
                                             { tag: "{google_review_link}", label: "Raw Review URL" },
                                         ].map((t) => (
                                             <button

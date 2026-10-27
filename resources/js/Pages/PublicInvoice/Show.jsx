@@ -19,22 +19,8 @@ import {
 } from "lucide-react";
 
 export default function PublicInvoiceShow({ invoice, businessProfile, summary }) {
-    const [copiedUpi, setCopiedUpi] = useState(false);
-
     const isPaid = (summary.balance_due <= 0.01);
     const isPartial = !isPaid && summary.paid_amount > 0;
-
-    const handleCopyUpi = () => {
-        if (!summary.upi_id) return;
-        navigator.clipboard.writeText(summary.upi_id);
-        setCopiedUpi(true);
-        setTimeout(() => setCopiedUpi(false), 2500);
-    };
-
-    // Construct UPI QR Image URL via high-performance SVG/image QR generator
-    const upiQrUrl = summary.upi_pay_url
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(summary.upi_pay_url)}`
-        : null;
 
     return (
         <div className="min-h-screen bg-[#f8fafc] text-slate-900 pb-12 antialiased selection:bg-indigo-600 selection:text-white font-sans">
@@ -128,67 +114,6 @@ export default function PublicInvoiceShow({ invoice, businessProfile, summary })
                             )}
                         </div>
                     </div>
-
-                    {/* Instant UPI Payment Section */}
-                    {!isPaid && summary.upi_id && (
-                        <div className="p-5 sm:p-6 bg-gradient-to-b from-emerald-50/50 to-white border-t border-emerald-100">
-                            <div className="text-center max-w-md mx-auto space-y-4">
-                                <div>
-                                    <h3 className="text-base font-extrabold text-slate-900 flex items-center justify-center gap-1.5">
-                                        <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                                        Pay Instantly via UPI (₹0 Surcharge)
-                                    </h3>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Tap below to launch Google Pay, PhonePe, Paytm, or scan the QR code.
-                                    </p>
-                                </div>
-
-                                {summary.upi_pay_url && (
-                                    <a
-                                        href={summary.upi_pay_url}
-                                        className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-extrabold text-sm sm:text-base shadow-md shadow-emerald-600/20 transition cursor-pointer"
-                                    >
-                                        Pay ₹{Number(summary.balance_due).toLocaleString("en-IN", { minimumFractionDigits: 2 })} via UPI
-                                        <ArrowUpRight className="w-4 h-4 ml-1" />
-                                    </a>
-                                )}
-
-                                {upiQrUrl && (
-                                    <div className="inline-block p-3.5 bg-white rounded-2xl shadow-xs border border-slate-200">
-                                        <img
-                                            src={upiQrUrl}
-                                            alt="Scan UPI QR"
-                                            className="w-44 h-44 object-contain mx-auto"
-                                        />
-                                        <div className="flex items-center justify-center gap-2 mt-2">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                                Accepted via GPay • PhonePe • Paytm • BHIM
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
-                                    <span className="text-slate-500">Merchant UPI ID:</span>
-                                    <code className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono text-slate-900 font-bold">
-                                        {summary.upi_id}
-                                    </code>
-                                    <button
-                                        type="button"
-                                        onClick={handleCopyUpi}
-                                        className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer"
-                                        title="Copy UPI ID"
-                                    >
-                                        {copiedUpi ? (
-                                            <Check className="w-4 h-4 text-emerald-600" />
-                                        ) : (
-                                            <Copy className="w-4 h-4" />
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 {/* Seller & Customer Details */}
