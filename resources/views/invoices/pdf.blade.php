@@ -254,17 +254,8 @@
     <!-- Totals and HSN Summary -->
     <table style="width: 100%; border-collapse: collapse;">
         <tr>
-            <!-- Left: Bank & Settlement -->
+            <!-- Left: Terms & Conditions -->
             <td style="width: 55%; vertical-align: top; padding-right: 15px;">
-                @if(!empty($businessProfile?->bank_name))
-                    <div style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 10px; background: #f8fafc; margin-bottom: 8px;">
-                        <div style="font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">Bank Settlement Details:</div>
-                        <div style="font-size: 9.5px; margin-top: 2px;"><strong>Bank:</strong> {{ $businessProfile->bank_name }} {{ $businessProfile->bank_branch ? "({$businessProfile->bank_branch})" : "" }}</div>
-                        <div style="font-size: 9.5px;"><strong>A/C No:</strong> {{ $businessProfile->bank_account_number }}</div>
-                        <div style="font-size: 9.5px;"><strong>IFSC Code:</strong> {{ $businessProfile->bank_ifsc }}</div>
-                    </div>
-                @endif
-
                 @if(!empty($invoice->terms))
                     <div style="font-size: 8.5px; color: #64748b;">
                         <strong>Terms & Conditions:</strong><br/>

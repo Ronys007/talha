@@ -3385,20 +3385,9 @@ function InvoicePrintPreviewModal({ invoice, businessProfile = {}, onClose }) {
                             </div>
                         </div>
 
-                        {/* 5. Bank Details, Terms & Signatures */}
+                        {/* 5. Terms & Signatures */}
                         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14, borderTop: "1px solid #e2e8f0", paddingTop: 12 }}>
                             <div>
-                                {businessProfile?.bank_name && (
-                                    <div style={{ marginBottom: 8, fontSize: 11 }}>
-                                        <div style={{ fontWeight: 700, textTransform: "uppercase", color: "#64748b", fontSize: 9.5 }}>
-                                            Bank Payment Details:
-                                        </div>
-                                        <div>Bank: <strong>{businessProfile.bank_name}</strong> {businessProfile.bank_branch ? `(${businessProfile.bank_branch})` : ""}</div>
-                                        <div>A/C No: <strong>{businessProfile.bank_account_number}</strong></div>
-                                        <div>IFSC: <strong>{businessProfile.bank_ifsc}</strong></div>
-                                    </div>
-                                )}
-
                                 <div style={{ fontSize: 10.5, color: "#64748b" }}>
                                     <div style={{ fontWeight: 700, textTransform: "uppercase", fontSize: 9.5, marginBottom: 2 }}>
                                         Terms & Conditions:

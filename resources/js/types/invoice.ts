@@ -56,10 +56,6 @@ export interface BusinessProfileData {
     phone?: string | null;
     email?: string | null;
     pan_number?: string | null;
-    bank_name?: string | null;
-    bank_account_number?: string | null;
-    bank_ifsc?: string | null;
-    bank_branch?: string | null;
     terms_and_conditions?: string | null;
 }
 

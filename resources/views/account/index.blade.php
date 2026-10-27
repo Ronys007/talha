@@ -250,7 +250,7 @@
                         <div class="mb-3">
                             <label for="receive_text" class="form-label">Description (Optional)</label>
                             <textarea class="form-control" id="receive_text" name="text" rows="2"
-                                placeholder="e.g., Cash payment, Bank transfer, etc."></textarea>
+                                placeholder="e.g., Cash payment, Online transfer, etc."></textarea>
                         </div>
                     </div>
                     <div class="modal-footer border-success">

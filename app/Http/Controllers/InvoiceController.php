@@ -85,10 +85,6 @@ class InvoiceController extends Controller
                 'gst_number' => '',
                 'phone' => '',
                 'email' => $user->email ?? '',
-                'bank_name' => '',
-                'bank_account_number' => '',
-                'bank_ifsc' => '',
-                'bank_branch' => '',
                 'terms_and_conditions' => "1. Goods once sold will not be taken back or exchanged.\n2. Subject to local jurisdiction.\n3. Payment due upon receipt.",
             ];
         }
@@ -268,10 +264,6 @@ class InvoiceController extends Controller
                     'phone' => $request->seller_phone ? trim($request->seller_phone) : null,
                     'email' => $request->seller_email ? trim($request->seller_email) : null,
                     'pan_number' => $request->seller_pan ? strtoupper(trim($request->seller_pan)) : null,
-                    'bank_name' => $request->bank_name ? trim($request->bank_name) : null,
-                    'bank_account_number' => $request->bank_account_number ? trim($request->bank_account_number) : null,
-                    'bank_ifsc' => $request->bank_ifsc ? strtoupper(trim($request->bank_ifsc)) : null,
-                    'bank_branch' => $request->bank_branch ? trim($request->bank_branch) : null,
                     'terms_and_conditions' => $request->terms ? trim($request->terms) : null,
                 ]
             );
@@ -562,10 +554,6 @@ class InvoiceController extends Controller
                     'phone' => $request->seller_phone ? trim($request->seller_phone) : null,
                     'email' => $request->seller_email ? trim($request->seller_email) : null,
                     'pan_number' => $request->seller_pan ? strtoupper(trim($request->seller_pan)) : null,
-                    'bank_name' => $request->bank_name ? trim($request->bank_name) : null,
-                    'bank_account_number' => $request->bank_account_number ? trim($request->bank_account_number) : null,
-                    'bank_ifsc' => $request->bank_ifsc ? strtoupper(trim($request->bank_ifsc)) : null,
-                    'bank_branch' => $request->bank_branch ? trim($request->bank_branch) : null,
                     'terms_and_conditions' => $request->terms ? trim($request->terms) : null,
                 ]
             );

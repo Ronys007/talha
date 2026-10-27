@@ -154,9 +154,6 @@ class PaymentReminderController extends Controller
                 'email' => $businessProfile->email ?? ($ownerUser?->email ?? ($user->email ?? '')),
                 'address' => $businessProfile->address ?? '',
                 'gstin' => $businessProfile->gst_number ?? '',
-                'bank_account_number' => $businessProfile->bank_account_number ?? '',
-                'bank_name' => $businessProfile->bank_name ?? '',
-                'ifsc' => $businessProfile->bank_ifsc ?? '',
             ],
         ]);
     }

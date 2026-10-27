@@ -58,7 +58,7 @@
                 </div>
             @else
                 <div style="color: #64748b; font-size: 13px; margin-bottom: 16px;">
-                    UPI ID is not configured by the merchant. Please view your online bill below for bank details.
+                    Please view your online bill below for complete details.
                 </div>
             @endif
 
