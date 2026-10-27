@@ -38,25 +38,37 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Automatic WhatsApp Daily Reminder Heartbeat Runner (for Shared Hosting)
-        // Automatically triggers the daily reminder dispatches once per day after 11:15 AM IST
+        // Automatically triggers the daily reminder dispatches once per day after 12:25 PM (Sales) and 12:30 PM (Purchases) IST
         // completely in the background without needing any manual human interaction or button clicks.
         if (!app()->runningInConsole() && !app()->runningUnitTests()) {
             app()->terminating(function () {
                 try {
-                    $now = \Carbon\Carbon::now(config('app.timezone', 'Asia/Kolkata'));
-                    $isPast1115 = ($now->hour > 11) || ($now->hour === 11 && $now->minute >= 15);
-                    if ($isPast1115) {
-                        $todayDate = $now->toDateString();
-                        $cacheKey = "whatsapp_auto_reminders_dispatched_{$todayDate}";
+                    $now = \Carbon\Carbon::now('Asia/Kolkata');
+                    $todayDate = $now->toDateString();
 
-                        $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$cacheKey}", 60);
+                    // 1. Sales reminders: after 12:25 PM IST
+                    $isPastSalesTime = ($now->hour > 12) || ($now->hour === 12 && $now->minute >= 25);
+                    if ($isPastSalesTime) {
+                        $salesCacheKey = "whatsapp_auto_sales_reminders_{$todayDate}";
+                        $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$salesCacheKey}", 60);
                         if ($lock->get()) {
-                            if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
-                                \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addHours(3));
+                            if (!\Illuminate\Support\Facades\Cache::has($salesCacheKey)) {
+                                \Illuminate\Support\Facades\Cache::put($salesCacheKey, true, now()->addHours(4));
                                 \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders');
-                                if (($now->hour > 11) || ($now->hour === 11 && $now->minute >= 30)) {
-                                    \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
-                                }
+                            }
+                            $lock->release();
+                        }
+                    }
+
+                    // 2. Purchase reminders: after 12:30 PM IST
+                    $isPastPurchaseTime = ($now->hour > 12) || ($now->hour === 12 && $now->minute >= 30);
+                    if ($isPastPurchaseTime) {
+                        $purchaseCacheKey = "whatsapp_auto_purchase_reminders_{$todayDate}";
+                        $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$purchaseCacheKey}", 60);
+                        if ($lock->get()) {
+                            if (!\Illuminate\Support\Facades\Cache::has($purchaseCacheKey)) {
+                                \Illuminate\Support\Facades\Cache::put($purchaseCacheKey, true, now()->addHours(4));
+                                \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders');
                             }
                             $lock->release();
                         }
