@@ -170,10 +170,17 @@ class WhatsAppService
         }
         $sessionId = $this->getSessionId($merchantId);
 
+        // In-memory caching for 30s to avoid hammering sidecar during batch reminder dispatch
+        static $statusCache = [];
+        $cacheKey = "sess_status_{$sessionId}";
+        if (isset($statusCache[$cacheKey]) && (time() - $statusCache[$cacheKey]['time']) < 30) {
+            return $statusCache[$cacheKey]['data'];
+        }
+
         try {
             $response = Http::withHeaders([
                 'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(8)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
+            ])->timeout(20)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -188,11 +195,11 @@ class WhatsAppService
                         if ($cSession === $sessionId) continue;
                         try {
                             $cRes = Http::withHeaders(['X-Whatsapp-Secret' => $this->secret])
-                                ->timeout(4)
+                                ->timeout(10)
                                 ->get("{$this->sidecarUrl}/sessions/{$cSession}/status");
                             if ($cRes->successful() && ($cRes->json()['status'] ?? '') === 'connected') {
                                 $cData = $cRes->json();
-                                return [
+                                $result = [
                                     'success' => true,
                                     'sessionId' => $cData['sessionId'] ?? $cSession,
                                     'status' => 'connected',
@@ -201,12 +208,14 @@ class WhatsAppService
                                     'lastActive' => $cData['lastActive'] ?? null,
                                     'sidecar_url' => $this->sidecarUrl,
                                 ];
+                                $statusCache[$cacheKey] = ['time' => time(), 'data' => $result];
+                                return $result;
                             }
                         } catch (\Throwable $e) {}
                     }
                 }
 
-                return [
+                $result = [
                     'success' => true,
                     'sessionId' => $actualSessionId,
                     'status' => $status,
@@ -215,10 +224,12 @@ class WhatsAppService
                     'lastActive' => $data['lastActive'] ?? null,
                     'sidecar_url' => $this->sidecarUrl,
                 ];
+                $statusCache[$cacheKey] = ['time' => time(), 'data' => $result];
+                return $result;
             }
 
             $errMsg = $response->json('error') ?? "Sidecar returned HTTP " . $response->status();
-            return [
+            $result = [
                 'success' => false,
                 'sessionId' => $sessionId,
                 'status' => 'disconnected',
@@ -228,6 +239,8 @@ class WhatsAppService
                 'error' => $errMsg,
                 'sidecar_url' => $this->sidecarUrl,
             ];
+            $statusCache[$cacheKey] = ['time' => time(), 'data' => $result];
+            return $result;
         } catch (\Throwable $e) {
             Log::warning("WhatsApp sidecar getSessionStatus error [{$sessionId}]: " . $e->getMessage());
             return [
@@ -339,7 +352,7 @@ class WhatsAppService
             try {
                 $response = Http::withHeaders([
                     'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", [
+                ])->timeout(25)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", [
                     'phone' => $formattedPhone,
                     'message' => $message,
                 ]);
@@ -463,7 +476,7 @@ class WhatsAppService
 
                 $response = Http::withHeaders([
                     'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(20)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", $payload);
+                ])->timeout(40)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", $payload);
 
                 if ($response->successful() && ($response->json()['success'] ?? false)) {
                     $messageId = $response->json()['messageId'] ?? null;
