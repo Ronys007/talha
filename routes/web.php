@@ -219,90 +219,10 @@ Route::match(['GET', 'POST'], '/cron/send-reminders', function (\Illuminate\Http
         $isValid = true;
     }
 
-    $isBrowserHtml = $request->acceptsHtml() && !$request->expectsJson() && !$request->has('json');
-
-    // If unauthorized and requested from browser, show user-friendly interactive helper screen instead of raw 403
     if (! $isValid) {
-        if ($isBrowserHtml) {
-            $currentUrl = url('/cron/send-reminders');
-            $sampleUrl = "{$currentUrl}?token=" . urlencode($configuredSecret);
-            $loginUrl = route('login');
-
-            return response()->make(<<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Reminders Trigger - Authorization Required</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #1e293b; padding: 30px 15px; margin: 0; }
-        .card { max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; overflow: hidden; }
-        .header { background: linear-gradient(135deg, #059669, #0d9488); color: white; padding: 24px; text-align: center; }
-        .header h1 { margin: 0 0 6px 0; font-size: 20px; font-weight: 700; }
-        .header p { margin: 0; font-size: 13px; opacity: 0.9; }
-        .body { padding: 24px; }
-        .alert { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
-        .box { background: #f1f5f9; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; }
-        .box h3 { margin: 0 0 8px 0; font-size: 14px; color: #334155; }
-        .url-box { font-family: monospace; background: #1e293b; color: #38bdf8; padding: 10px 12px; border-radius: 6px; word-break: break-all; margin: 8px 0; font-size: 12px; }
-        .btn { display: inline-block; background: #059669; color: white; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; border: none; cursor: pointer; transition: 0.2s; }
-        .btn:hover { background: #047857; }
-        .btn-outline { background: transparent; color: #059669; border: 1px solid #059669; }
-        .btn-outline:hover { background: #ecfdf5; }
-        .form-row { display: flex; gap: 8px; margin-top: 10px; }
-        input[type="text"], input[type="password"] { flex: 1; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; }
-        input:focus { border-color: #059669; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <h1>⚡ WhatsApp Reminders Automation</h1>
-            <p>Automated payment reminders for sales & supplier purchase bills</p>
-        </div>
-        <div class="body">
-            <div class="alert">
-                <span>⚠️</span>
-                <div><strong>Authorization Required:</strong> Please provide a valid cron token or log in as an administrator.</div>
-            </div>
-
-            <div class="box">
-                <h3>Option 1: Enter Token & Run in Browser</h3>
-                <form action="{$currentUrl}" method="GET">
-                    <div class="form-row">
-                        <input type="text" name="token" placeholder="Enter CRON_SECRET or APP_KEY" required value="{$configuredSecret}">
-                        <button type="submit" class="btn">Run Now</button>
-                    </div>
-                    <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:#64748b; cursor:pointer;">
-                        <input type="checkbox" name="dry_run" value="1"> Test Run Only (Dry Run - won't dispatch live messages)
-                    </label>
-                </form>
-            </div>
-
-            <div class="box">
-                <h3>Option 2: Log in to Vama Invoice</h3>
-                <p style="margin: 0 0 10px 0; color: #475569;">If you are already a user or admin, simply log in to execute reminders with one click without entering tokens.</p>
-                <a href="{$loginUrl}" class="btn btn-outline">Log in to Dashboard</a>
-            </div>
-
-            <div class="box" style="margin-bottom: 0;">
-                <h3>Option 3: Use this URL in Hostinger Web Cron</h3>
-                <p style="margin: 0 0 6px 0; color: #475569;">Copy and paste this ready-to-use URL directly into Hostinger Cron Jobs (Web Cron):</p>
-                <div class="url-box">{$sampleUrl}</div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-HTML, 403);
-        }
-
         return response()->json([
             'success' => false,
             'error' => 'Unauthorized: Missing or invalid cron authorization token.',
-            'hint' => 'Provide ?token=' . $configuredSecret . ' or log in to run.',
-            'configured_token_sample' => url('/cron/send-reminders?token=' . urlencode($configuredSecret)),
         ], 403);
     }
 
@@ -328,61 +248,6 @@ HTML, 403);
         $purchaseOutput = trim(\Illuminate\Support\Facades\Artisan::output());
     } catch (\Throwable $e) {
         $purchaseOutput = 'Error: ' . $e->getMessage();
-    }
-
-    if ($isBrowserHtml) {
-        $modeBadge = !empty($commandParams['--dry-run'])
-            ? '<span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:4px; font-weight:600;">DRY RUN (TEST)</span>'
-            : '<span style="background:#ecfdf5; color:#047857; padding:3px 8px; border-radius:4px; font-weight:600;">LIVE DISPATCH</span>';
-
-        $salesEscaped = htmlspecialchars($salesOutput ?: 'No output.');
-        $purchaseEscaped = htmlspecialchars($purchaseOutput ?: 'No output.');
-        $nowStr = now()->format('d M Y, h:i:s A');
-
-        return response()->make(<<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Reminders Execution - Completed</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #1e293b; padding: 30px 15px; margin: 0; }
-        .card { max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; overflow: hidden; }
-        .header { background: linear-gradient(135deg, #059669, #0d9488); color: white; padding: 24px; text-align: center; }
-        .header h1 { margin: 0 0 6px 0; font-size: 20px; font-weight: 700; }
-        .body { padding: 24px; }
-        .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 13px; color: #64748b; }
-        .log-box { font-family: monospace; background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; margin-bottom: 20px; max-height: 320px; overflow-y: auto; }
-        .section-title { font-size: 14px; font-weight: 700; color: #334155; margin: 16px 0 8px 0; display: flex; align-items: center; gap: 6px; }
-        .btn { display: inline-block; background: #059669; color: white; padding: 9px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <h1>✓ WhatsApp Reminders Routine Executed</h1>
-        </div>
-        <div class="body">
-            <div class="meta">
-                <div>Execution Time: <strong>{$nowStr}</strong></div>
-                <div>Mode: {$modeBadge}</div>
-            </div>
-
-            <div class="section-title">📊 Customer Sales Invoice Reminders Output:</div>
-            <div class="log-box">{$salesEscaped}</div>
-
-            <div class="section-title">📦 Admin Purchase Order Reminders Output:</div>
-            <div class="log-box">{$purchaseEscaped}</div>
-
-            <div style="text-align: center; margin-top: 24px;">
-                <a href="/sales-reminders" class="btn">Return to Sales Reminders Dashboard</a>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-HTML, 200);
     }
 
     return response()->json([
