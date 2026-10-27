@@ -46,8 +46,8 @@ class AppServiceProvider extends ServiceProvider
                     $now = \Carbon\Carbon::now('Asia/Kolkata');
                     $todayDate = $now->toDateString();
 
-                    // 1. Sales reminders: after 12:25 PM IST
-                    $isPastSalesTime = ($now->hour > 12) || ($now->hour === 12 && $now->minute >= 25);
+                    // 1. Sales reminders: after 1:50 PM IST (13:50)
+                    $isPastSalesTime = ($now->hour > 13) || ($now->hour === 13 && $now->minute >= 50);
                     if ($isPastSalesTime) {
                         $salesCacheKey = "whatsapp_auto_sales_reminders_{$todayDate}";
                         $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$salesCacheKey}", 60);
@@ -60,8 +60,8 @@ class AppServiceProvider extends ServiceProvider
                         }
                     }
 
-                    // 2. Purchase reminders: after 12:30 PM IST
-                    $isPastPurchaseTime = ($now->hour > 12) || ($now->hour === 12 && $now->minute >= 30);
+                    // 2. Purchase reminders: after 1:51 PM IST (13:51)
+                    $isPastPurchaseTime = ($now->hour > 13) || ($now->hour === 13 && $now->minute >= 51);
                     if ($isPastPurchaseTime) {
                         $purchaseCacheKey = "whatsapp_auto_purchase_reminders_{$todayDate}";
                         $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$purchaseCacheKey}", 60);
