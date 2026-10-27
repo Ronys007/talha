@@ -547,7 +547,7 @@ class WhatsAppService
         $due = (float) ($data['balance_due'] ?? 0);
         $paymentSection = '';
         if ($due > 0 && $hasUpi) {
-            $paymentSection = "\n\n💳 *Payment QR Code:* (Attached below - scan with GPay/PhonePe/Paytm to pay, valid for 2 scans)";
+            $paymentSection = "\n\n💳 *Payment QR Code:* (Attached below - scan with GPay/PhonePe/Paytm to pay)";
         }
 
         // 2. Build review section dynamically (QR notice instead of raw review link)
@@ -708,16 +708,16 @@ class WhatsAppService
             $due = max(0, (float) ($invoice->total_amount - ($invoice->paid_amount ?? 0)));
             $profile = BusinessProfile::where('user_id', $ownerId)->first();
 
-            // 2. Dispatch Dynamic Payment QR Code image (Limited to 2 scans) if balance due > 0 and merchant has UPI ID
+            // 2. Dispatch Native UPI Payment QR Code image if balance due > 0 and merchant has UPI ID
             if ($due > 0.01 && !empty($profile?->upi_id)) {
                 try {
-                    $payUrl = url("/pay/{$invoice->invoice_hash}");
-                    $qrBase64 = $this->generateQrCodeBase64($payUrl);
+                    $shopName = $invoice->seller_name ?: ($profile->business_name ?: 'Store');
+                    $upiUrl = $this->generateUpiPayUrl($profile->upi_id, $shopName, $due, $invoice->invoice_number);
+                    $qrBase64 = $this->generateQrCodeBase64($upiUrl);
                     if (!empty($qrBase64)) {
                         $qrCaption = "💳 *Payment QR Code - Invoice #{$invoice->invoice_number}*\n"
                             . "💰 *Amount Due:* ₹" . number_format($due, 2) . "\n"
-                            . "🔒 *Security Notice:* Valid for *2 scans only*.\n"
-                            . "👉 Scan with Google Pay, PhonePe, Paytm, or BHIM to pay.";
+                            . "👉 Scan with Google Pay, PhonePe, Paytm, or BHIM to pay directly.";
 
                         $this->sendDocument(
                             phone: $invoice->customer_phone,
