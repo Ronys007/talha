@@ -234,20 +234,26 @@ Route::match(['GET', 'POST'], '/cron/send-reminders', function (\Illuminate\Http
         $commandParams['--force'] = true;
     }
 
+    $type = $request->query('type', 'all');
     $salesOutput = '';
     $purchaseOutput = '';
-    try {
-        \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders', $commandParams);
-        $salesOutput = trim(\Illuminate\Support\Facades\Artisan::output());
-    } catch (\Throwable $e) {
-        $salesOutput = 'Error: ' . $e->getMessage();
+
+    if ($type === 'all' || $type === 'sales' || $type === 'sale') {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('invoices:send-due-reminders', $commandParams);
+            $salesOutput = trim(\Illuminate\Support\Facades\Artisan::output());
+        } catch (\Throwable $e) {
+            $salesOutput = 'Error: ' . $e->getMessage();
+        }
     }
 
-    try {
-        \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders', $commandParams);
-        $purchaseOutput = trim(\Illuminate\Support\Facades\Artisan::output());
-    } catch (\Throwable $e) {
-        $purchaseOutput = 'Error: ' . $e->getMessage();
+    if ($type === 'all' || $type === 'purchases' || $type === 'purchase') {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('purchases:send-due-reminders', $commandParams);
+            $purchaseOutput = trim(\Illuminate\Support\Facades\Artisan::output());
+        } catch (\Throwable $e) {
+            $purchaseOutput = 'Error: ' . $e->getMessage();
+        }
     }
 
     return response()->json([

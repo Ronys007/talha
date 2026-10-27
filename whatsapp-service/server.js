@@ -692,8 +692,123 @@ app.delete('/sessions/:id/logout', async (req, res) => {
     });
 });
 
+/**
+ * Trigger Laravel reminders via HTTP webhook or direct CLI command
+ */
+async function triggerLaravelReminders(type = 'all') {
+    const laravelUrl = process.env.LARAVEL_URL || process.env.APP_URL || 'https://vamalabs.in/invoice';
+    const cronSecret = process.env.CRON_SECRET || SECRET;
+
+    // 1. Try via HTTP endpoint
+    try {
+        const cleanBaseUrl = laravelUrl.replace(/\/+$/, '');
+        const targetUrl = `${cleanBaseUrl}/cron/send-reminders?token=${encodeURIComponent(cronSecret)}&type=${type}`;
+        logger.info({ targetUrl, type }, 'Dispatching reminder cron request to Laravel...');
+
+        const response = await fetch(targetUrl, {
+            headers: {
+                'X-Cron-Secret': cronSecret,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            logger.info({ type, data }, '✓ Automated reminder dispatch completed via Laravel web endpoint');
+            return data;
+        } else {
+            logger.warn({ status: response.status, statusText: response.statusText }, 'Web cron endpoint returned non-200');
+        }
+    } catch (httpErr) {
+        logger.warn({ err: httpErr.message }, 'Could not reach Laravel web cron endpoint; checking local artisan...');
+    }
+
+    // 2. Local fallback if on same server
+    try {
+        const { exec } = await import('child_process');
+        const artisanPath = path.resolve(__dirname, '../artisan');
+        if (fs.existsSync(artisanPath)) {
+            const command = type === 'purchase' || type === 'purchases'
+                ? 'php artisan purchases:send-due-reminders'
+                : (type === 'sales' || type === 'sale' ? 'php artisan invoices:send-due-reminders' : 'php artisan invoices:send-due-reminders && php artisan purchases:send-due-reminders');
+
+            logger.info({ command }, 'Running artisan command via Node.js child_process...');
+            exec(command, { cwd: path.resolve(__dirname, '..') }, (err, stdout, stderr) => {
+                if (err) {
+                    logger.error({ err: err.message, stderr }, 'Artisan command execution failed');
+                } else {
+                    logger.info({ stdout: stdout.trim() }, '✓ Artisan reminder executed successfully via Node');
+                }
+            });
+        }
+    } catch (cliErr) {
+        logger.error({ err: cliErr.message }, 'Error in local artisan execution fallback');
+    }
+}
+
+/**
+ * Automated WhatsApp Reminder Scheduler for India Standard Time (Asia/Kolkata)
+ * Runs 24/7 inside Node.js:
+ *  - 12:25 PM IST -> Sales Reminders (PDF + UPI QR + Review QR)
+ *  - 12:30 PM IST -> Purchase Reminders (Statement PDF only)
+ */
+let lastTriggeredDateSales = null;
+let lastTriggeredDatePurchase = null;
+
+function startReminderCron() {
+    logger.info('🕒 Automated WhatsApp Reminder Cron started (Target: 12:25 PM IST for Sales, 12:30 PM IST for Purchases)');
+
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            // Get current time in Indian Standard Time (Asia/Kolkata)
+            const istTimeStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
+            const istDateStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
+            const [hourStr, minuteStr] = istTimeStr.split(':');
+            const hour = parseInt(hourStr, 10);
+            const minute = parseInt(minuteStr, 10);
+
+            // 1. Sales Invoices Due Reminders: Exactly 12:25 PM IST
+            if (hour === 12 && minute === 25 && lastTriggeredDateSales !== istDateStr) {
+                lastTriggeredDateSales = istDateStr;
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 12:25 PM IST! Triggering Customer Sales Reminders...');
+                await triggerLaravelReminders('sales');
+            }
+
+            // 2. Purchase Bills Due Reminders: Exactly 12:30 PM IST
+            if (hour === 12 && minute === 30 && lastTriggeredDatePurchase !== istDateStr) {
+                lastTriggeredDatePurchase = istDateStr;
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 12:30 PM IST! Triggering Admin Purchase Reminders...');
+                await triggerLaravelReminders('purchases');
+            }
+        } catch (cronErr) {
+            logger.error({ err: cronErr.message }, 'Error in Node reminder cron check');
+        }
+    }, 30000); // Check every 30 seconds
+}
+
+/**
+ * GET/POST /cron/trigger
+ * Manually trigger reminder dispatch on-demand from Node
+ */
+app.all('/cron/trigger', async (req, res) => {
+    const authHeader = req.headers['x-whatsapp-secret'] || req.query.secret;
+    if (SECRET && SECRET !== 'vama_secret_change_me_in_prod' && authHeader !== SECRET) {
+        return res.status(401).json({ success: false, error: 'Unauthorized.' });
+    }
+
+    const type = req.query.type || req.body?.type || 'all';
+    try {
+        const result = await triggerLaravelReminders(type);
+        return res.json({ success: true, message: `Reminders triggered for ${type}`, result });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // Start Express Server
 app.listen(PORT, HOST, () => {
     logger.info(`Vama WhatsApp Baileys Sidecar running at http://${HOST}:${PORT}`);
     autoReconnectSessions();
+    startReminderCron();
 });
