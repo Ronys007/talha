@@ -205,8 +205,19 @@ Route::get('/clear-cache', function (\Illuminate\Http\Request $request) {
 
 // Web Cron / Trigger Route for automated WhatsApp due payment & purchase reminders (Token-Protected)
 Route::match(['GET', 'POST'], '/cron/send-reminders', function (\Illuminate\Http\Request $request) {
+    // 1. Website & App Identity Verification (Prevents cross-website trigger collisions)
+    $callingApp = (string) ($request->header('X-App-Id') ?: $request->query('app_id', ''));
+    $myAppId = (string) (config('services.whatsapp.app_id') ?: env('WHATSAPP_APP_ID', 'invoice'));
+    if ($callingApp !== '' && strtolower($callingApp) !== strtolower($myAppId)) {
+        return response()->json([
+            'success' => false,
+            'error' => "Unauthorized: Cron request meant for '{$callingApp}', but this website is '{$myAppId}'.",
+        ], 403);
+    }
+
+    // 2. Secret & Token Verification
     $configuredSecret = (string) (config('services.cron.secret') ?: env('CRON_SECRET', '4560a61722c5be98485f0917abb5aa18d0dec73f5cdd60e8'));
-    $token = (string) ($request->query('token') ?: ($request->query('key') ?: ($request->input('token') ?: ($request->input('key') ?: $request->header('X-Cron-Token')))));
+    $token = (string) ($request->query('token') ?: ($request->query('key') ?: ($request->input('token') ?: ($request->input('key') ?: ($request->header('X-Cron-Token') ?: $request->header('X-Cron-Secret'))))));
     $appKey = (string) config('app.key');
     $appKeySuffix = strlen($appKey) >= 16 ? substr($appKey, -16) : $appKey;
 

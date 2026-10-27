@@ -125,20 +125,20 @@ class WhatsAppFeatureTest extends TestCase
     public function test_whatsapp_service_sends_automated_message_when_connected(): void
     {
         $user = User::factory()->create();
+        $service = app(WhatsAppService::class);
+        $sessionId = $service->getSessionId($user->id);
 
         Http::fake([
-            'http://127.0.0.1:3001/sessions/merchant_' . $user->id . '/status' => Http::response([
+            "*/sessions/{$sessionId}/status" => Http::response([
                 'success' => true,
                 'status' => 'connected',
                 'phone' => '919876543210',
             ], 200),
-            'http://127.0.0.1:3001/sessions/merchant_' . $user->id . '/send-message' => Http::response([
+            "*/sessions/{$sessionId}/send-message" => Http::response([
                 'success' => true,
                 'messageId' => 'WAMID-1234567890',
             ], 200),
         ]);
-
-        $service = app(WhatsAppService::class);
         $result = $service->sendText(
             phone: '9876543210',
             message: 'Hello automated test!',

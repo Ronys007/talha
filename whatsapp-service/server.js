@@ -80,7 +80,7 @@ if (!fs.existsSync(SESSIONS_DIR)) {
 const sessions = new Map();
 
 /**
- * Authentication Middleware using shared secret
+ * Authentication Middleware using shared secret and website/app origin extraction
  */
 const authMiddleware = (req, res, next) => {
     const providedSecret = req.headers['x-whatsapp-secret'] || req.query.secret;
@@ -89,6 +89,41 @@ const authMiddleware = (req, res, next) => {
             success: false,
             error: 'Unauthorized: Invalid or missing X-Whatsapp-Secret header'
         });
+    }
+
+    // Extract calling website/app namespace and origin for tenant isolation
+    req.callingAppId = (req.headers['x-app-id'] || req.query.app_id || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    req.websiteOrigin = req.headers['x-website-origin'] || req.headers['origin'] || req.headers['referer'] || '';
+
+    next();
+};
+
+/**
+ * Strict Multi-Website Isolation Middleware:
+ * Verifies that the requested session matches the calling website's namespace.
+ * Prevents Vama Inventory from accessing or sending through Vama Invoice WhatsApp sessions.
+ */
+const verifySessionAccess = (req, res, next) => {
+    const sessionId = req.params.id;
+    const callingAppId = req.callingAppId;
+
+    if (sessionId && callingAppId) {
+        const parts = sessionId.split('_');
+        if (parts.length >= 2) {
+            const sessionAppPrefix = parts[0].toLowerCase();
+            if (sessionAppPrefix !== callingAppId && (sessionAppPrefix === 'invoice' || sessionAppPrefix === 'inventory' || sessionAppPrefix.startsWith('app'))) {
+                logger.warn({
+                    callingAppId,
+                    websiteOrigin: req.websiteOrigin,
+                    targetSession: sessionId
+                }, 'SECURITY ALERT: Cross-website session access attempt blocked');
+
+                return res.status(403).json({
+                    success: false,
+                    error: `Access Denied: Website/App '${callingAppId}' cannot access session '${sessionId}' belonging to '${sessionAppPrefix}'. Each website must use its own isolated sessions.`
+                });
+            }
+        }
     }
     next();
 };
@@ -294,8 +329,9 @@ app.get('/qr', async (req, res) => {
     }
 });
 
-// All /sessions routes protected by authMiddleware
+// All /sessions routes protected by authMiddleware and verifySessionAccess
 app.use('/sessions', authMiddleware);
+app.use('/sessions/:id', verifySessionAccess);
 
 /**
  * GET /sessions/:id/status
@@ -655,57 +691,100 @@ app.delete('/sessions/:id/logout', async (req, res) => {
 });
 
 /**
- * Trigger Laravel reminders via HTTP webhook or direct CLI command
+ * Multi-Website Registry for Automated Reminders:
+ * Ensures only websites that want automated reminders (Vama Invoice) receive them,
+ * while websites without reminders (Vama Inventory) are strictly excluded.
  */
-async function triggerLaravelReminders(type = 'all') {
-    const laravelUrl = process.env.LARAVEL_URL || process.env.APP_URL || 'https://vamalabs.in/invoice';
+const REGISTERED_WEBSITES = [
+    {
+        appId: 'invoice',
+        name: 'Vama Invoice',
+        url: process.env.INVOICE_APP_URL || process.env.LARAVEL_URL || process.env.APP_URL || 'https://vamalabs.in/invoice',
+        remindersEnabled: process.env.INVOICE_REMINDERS_ENABLED !== 'false' // default true for Vama Invoice
+    },
+    {
+        appId: 'inventory',
+        name: 'Vama Inventory',
+        url: process.env.INVENTORY_APP_URL || null,
+        remindersEnabled: process.env.INVENTORY_REMINDERS_ENABLED === 'true' // default false for Vama Inventory
+    }
+];
+
+/**
+ * Trigger reminders for registered websites with reminders enabled
+ */
+async function triggerLaravelReminders(type = 'all', targetApp = null) {
     const cronSecret = process.env.CRON_SECRET || SECRET;
 
-    // 1. Try via HTTP endpoint
-    try {
-        const cleanBaseUrl = laravelUrl.replace(/\/+$/, '');
-        const targetUrl = `${cleanBaseUrl}/cron/send-reminders?token=${encodeURIComponent(cronSecret)}&type=${type}`;
-        logger.info({ targetUrl, type }, 'Dispatching reminder cron request to Laravel...');
+    // Filter registered websites that have reminders enabled (or match targetApp if specified)
+    const targetWebsites = REGISTERED_WEBSITES.filter(site => {
+        if (targetApp && site.appId !== targetApp) return false;
+        return site.remindersEnabled && site.url;
+    });
 
-        const response = await fetch(targetUrl, {
-            headers: {
-                'X-Cron-Secret': cronSecret,
-                'Accept': 'application/json'
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            logger.info({ type, data }, '✓ Automated reminder dispatch completed via Laravel web endpoint');
-            return data;
-        } else {
-            logger.warn({ status: response.status, statusText: response.statusText }, 'Web cron endpoint returned non-200');
-        }
-    } catch (httpErr) {
-        logger.warn({ err: httpErr.message }, 'Could not reach Laravel web cron endpoint; checking local artisan...');
+    if (targetWebsites.length === 0) {
+        logger.info({ type, targetApp }, 'No registered websites have reminders enabled. Skipping auto-reminder dispatch.');
+        return { success: true, dispatched: 0 };
     }
 
-    // 2. Local fallback if on same server
-    try {
-        const { exec } = await import('child_process');
-        const artisanPath = path.resolve(__dirname, '../artisan');
-        if (fs.existsSync(artisanPath)) {
-            const command = type === 'purchase' || type === 'purchases'
-                ? 'php artisan purchases:send-due-reminders'
-                : (type === 'sales' || type === 'sale' ? 'php artisan invoices:send-due-reminders' : 'php artisan invoices:send-due-reminders && php artisan purchases:send-due-reminders');
+    const results = [];
 
-            logger.info({ command }, 'Running artisan command via Node.js child_process...');
-            exec(command, { cwd: path.resolve(__dirname, '..') }, (err, stdout, stderr) => {
-                if (err) {
-                    logger.error({ err: err.message, stderr }, 'Artisan command execution failed');
-                } else {
-                    logger.info({ stdout: stdout.trim() }, '✓ Artisan reminder executed successfully via Node');
+    for (const site of targetWebsites) {
+        logger.info({ appId: site.appId, siteName: site.name, url: site.url, type }, `Dispatching reminder cron request to ${site.name}...`);
+
+        // 1. Try via HTTP endpoint
+        try {
+            const cleanBaseUrl = site.url.replace(/\/+$/, '');
+            const targetUrl = `${cleanBaseUrl}/cron/send-reminders?token=${encodeURIComponent(cronSecret)}&type=${type}&app_id=${site.appId}`;
+
+            const response = await fetch(targetUrl, {
+                headers: {
+                    'X-Cron-Secret': cronSecret,
+                    'X-App-Id': site.appId,
+                    'X-Website-Origin': site.url,
+                    'Accept': 'application/json'
                 }
             });
+
+            if (response.ok) {
+                const data = await response.json();
+                logger.info({ appId: site.appId, type, data }, `✓ Automated reminder dispatch completed for ${site.name}`);
+                results.push({ appId: site.appId, status: 'ok', data });
+                continue;
+            } else {
+                logger.warn({ appId: site.appId, status: response.status, statusText: response.statusText }, `Web cron endpoint returned non-200 for ${site.name}`);
+            }
+        } catch (httpErr) {
+            logger.warn({ appId: site.appId, err: httpErr.message }, `Could not reach ${site.name} web cron endpoint; checking local artisan fallback...`);
         }
-    } catch (cliErr) {
-        logger.error({ err: cliErr.message }, 'Error in local artisan execution fallback');
+
+        // 2. Local fallback if on same server (local execution for invoice only)
+        if (site.appId === 'invoice') {
+            try {
+                const { exec } = await import('child_process');
+                const artisanPath = path.resolve(__dirname, '../artisan');
+                if (fs.existsSync(artisanPath)) {
+                    const command = type === 'purchase' || type === 'purchases'
+                        ? 'php artisan purchases:send-due-reminders'
+                        : (type === 'sales' || type === 'sale' ? 'php artisan invoices:send-due-reminders' : 'php artisan invoices:send-due-reminders && php artisan purchases:send-due-reminders');
+
+                    logger.info({ command }, 'Running artisan reminder command via Node.js child_process...');
+                    exec(command, { cwd: path.resolve(__dirname, '..') }, (err, stdout, stderr) => {
+                        if (err) {
+                            logger.error({ err: err.message, stderr }, 'Artisan command execution failed');
+                        } else {
+                            logger.info({ stdout: stdout.trim() }, '✓ Artisan reminder executed successfully via Node');
+                        }
+                    });
+                    results.push({ appId: site.appId, status: 'artisan_executed' });
+                }
+            } catch (cliErr) {
+                logger.error({ err: cliErr.message }, 'Error in local artisan execution fallback');
+            }
+        }
     }
+
+    return results;
 }
 
 /**

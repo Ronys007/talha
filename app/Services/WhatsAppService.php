@@ -16,6 +16,7 @@ class WhatsAppService
     protected string $sidecarUrl;
     protected string $secret;
     protected int $dailyLimit;
+    protected string $appId;
 
     public function __construct()
     {
@@ -39,6 +40,30 @@ class WhatsAppService
         $this->secret = $secret ?: 'vama_secret_change_me_in_prod';
 
         $this->dailyLimit = (int) (config('services.whatsapp.daily_broadcast_limit') ?: env('WHATSAPP_DAILY_BROADCAST_LIMIT', 150));
+
+        // Multi-Website / App isolation namespace (e.g. 'invoice', 'inventory')
+        $rawAppId = config('services.whatsapp.app_id') ?: env('WHATSAPP_APP_ID', 'invoice');
+        $this->appId = preg_replace('/[^a-zA-Z0-9_-]/', '', strtolower((string) $rawAppId)) ?: 'invoice';
+    }
+
+    /**
+     * Get the website / app isolation identifier
+     */
+    public function getAppId(): string
+    {
+        return $this->appId;
+    }
+
+    /**
+     * Build standard headers for sidecar communication including website and app identity
+     */
+    public function getSidecarHeaders(): array
+    {
+        return [
+            'X-Whatsapp-Secret' => $this->secret,
+            'X-App-Id' => $this->appId,
+            'X-Website-Origin' => config('app.url', url('/')),
+        ];
     }
 
     /**
@@ -66,12 +91,13 @@ class WhatsAppService
     }
 
     /**
-     * Resolve session identifier for a merchant
+     * Resolve session identifier for a merchant with website namespace prefix
+     * e.g., 'invoice_merchant_21' or 'inventory_merchant_21'
      */
     public function getSessionId(?int $merchantId = null): string
     {
         $ownerId = $this->resolveOwnerId($merchantId);
-        return "merchant_{$ownerId}";
+        return "{$this->appId}_merchant_{$ownerId}";
     }
 
     /**
@@ -191,9 +217,8 @@ class WhatsAppService
         }
 
         try {
-            $response = Http::withHeaders([
-                'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(20)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
+            $response = Http::withHeaders($this->getSidecarHeaders())
+                ->timeout(20)->get("{$this->sidecarUrl}/sessions/{$sessionId}/status");
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -252,9 +277,8 @@ class WhatsAppService
         $sessionId = $this->getSessionId($merchantId);
 
         try {
-            $response = Http::withHeaders([
-                'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(15)->post("{$this->sidecarUrl}/sessions/{$sessionId}/connect");
+            $response = Http::withHeaders($this->getSidecarHeaders())
+                ->timeout(15)->post("{$this->sidecarUrl}/sessions/{$sessionId}/connect");
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -290,9 +314,8 @@ class WhatsAppService
         $sessionId = $this->getSessionId($merchantId);
 
         try {
-            $response = Http::withHeaders([
-                'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(6)->delete("{$this->sidecarUrl}/sessions/{$sessionId}/logout");
+            $response = Http::withHeaders($this->getSidecarHeaders())
+                ->timeout(6)->delete("{$this->sidecarUrl}/sessions/{$sessionId}/logout");
 
             if ($response->successful()) {
                 return $response->json();
@@ -335,9 +358,8 @@ class WhatsAppService
 
         if ($isSidecarConnected) {
             try {
-                $response = Http::withHeaders([
-                    'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(25)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", [
+                $response = Http::withHeaders($this->getSidecarHeaders())
+                    ->timeout(25)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", [
                     'phone' => $formattedPhone,
                     'message' => $message,
                 ]);
@@ -459,9 +481,8 @@ class WhatsAppService
                     $payload['base64File'] = $fileUrlOrBase64;
                 }
 
-                $response = Http::withHeaders([
-                    'X-Whatsapp-Secret' => $this->secret,
-                ])->timeout(40)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", $payload);
+                $response = Http::withHeaders($this->getSidecarHeaders())
+                    ->timeout(40)->post("{$this->sidecarUrl}/sessions/{$targetSession}/send-message", $payload);
 
                 if ($response->successful() && ($response->json()['success'] ?? false)) {
                     $messageId = $response->json()['messageId'] ?? null;
@@ -505,7 +526,7 @@ class WhatsAppService
 
         // 1. Try local sidecar endpoint first
         try {
-            $res = Http::withHeaders(['X-Whatsapp-Secret' => $this->secret])
+            $res = Http::withHeaders($this->getSidecarHeaders())
                 ->timeout(3)
                 ->get("{$this->sidecarUrl}/qr?text={$encoded}");
             if ($res->successful() && strlen($res->body()) > 80) {
@@ -1073,9 +1094,8 @@ class WhatsAppService
         $formattedPhone = $this->formatPhoneNumber($log->recipient_phone);
 
         try {
-            $response = Http::withHeaders([
-                'X-Whatsapp-Secret' => $this->secret,
-            ])->timeout(12)->post("{$this->sidecarUrl}/sessions/{$sessionId}/recall-message", [
+            $response = Http::withHeaders($this->getSidecarHeaders())
+                ->timeout(12)->post("{$this->sidecarUrl}/sessions/{$sessionId}/recall-message", [
                 'phone' => $formattedPhone,
                 'messageId' => $log->message_id,
             ]);
