@@ -38,7 +38,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Automatic WhatsApp Daily Reminder Heartbeat Runner (for Shared Hosting)
-        // Automatically triggers the daily reminder dispatches once per day after 12:25 PM (Sales) and 12:30 PM (Purchases) IST
+        // Automatically triggers the daily reminder dispatches once per day after 2:30 PM (Sales) and 2:31 PM (Purchases) IST
         // completely in the background without needing any manual human interaction or button clicks.
         if (!app()->runningInConsole() && !app()->runningUnitTests()) {
             app()->terminating(function () {
@@ -46,8 +46,8 @@ class AppServiceProvider extends ServiceProvider
                     $now = \Carbon\Carbon::now('Asia/Kolkata');
                     $todayDate = $now->toDateString();
 
-                    // 1. Sales reminders: after 1:50 PM IST (13:50)
-                    $isPastSalesTime = ($now->hour > 13) || ($now->hour === 13 && $now->minute >= 50);
+                    // 1. Sales reminders: after 2:30 PM IST (14:30)
+                    $isPastSalesTime = ($now->hour > 14) || ($now->hour === 14 && $now->minute >= 30);
                     if ($isPastSalesTime) {
                         $salesCacheKey = "whatsapp_auto_sales_reminders_{$todayDate}";
                         $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$salesCacheKey}", 60);
@@ -60,8 +60,8 @@ class AppServiceProvider extends ServiceProvider
                         }
                     }
 
-                    // 2. Purchase reminders: after 1:51 PM IST (13:51)
-                    $isPastPurchaseTime = ($now->hour > 13) || ($now->hour === 13 && $now->minute >= 51);
+                    // 2. Purchase reminders: after 2:31 PM IST (14:31)
+                    $isPastPurchaseTime = ($now->hour > 14) || ($now->hour === 14 && $now->minute >= 31);
                     if ($isPastPurchaseTime) {
                         $purchaseCacheKey = "whatsapp_auto_purchase_reminders_{$todayDate}";
                         $lock = \Illuminate\Support\Facades\Cache::lock("lock_{$purchaseCacheKey}", 60);
