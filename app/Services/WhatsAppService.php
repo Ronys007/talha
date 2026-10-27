@@ -16,7 +16,6 @@ class WhatsAppService
     protected string $sidecarUrl;
     protected string $secret;
     protected int $dailyLimit;
-    protected string $appId;
 
     public function __construct()
     {
@@ -40,29 +39,61 @@ class WhatsAppService
         $this->secret = $secret ?: 'vama_secret_change_me_in_prod';
 
         $this->dailyLimit = (int) (config('services.whatsapp.daily_broadcast_limit') ?: env('WHATSAPP_DAILY_BROADCAST_LIMIT', 150));
-
-        // Multi-Website / App isolation namespace (e.g. 'invoice', 'inventory')
-        $rawAppId = config('services.whatsapp.app_id') ?: env('WHATSAPP_APP_ID', 'invoice');
-        $this->appId = preg_replace('/[^a-zA-Z0-9_-]/', '', strtolower((string) $rawAppId)) ?: 'invoice';
     }
 
     /**
-     * Get the website / app isolation identifier
+     * Resolve the website domain dynamically from the application URL, HTTP host, or configuration.
+     * Default for Vama Invoice is 'invoice.vamalabs.in'.
      */
-    public function getAppId(): string
+    public function getWebsiteDomain(): string
     {
-        return $this->appId;
+        // 1. Explicit domain configuration if provided
+        $configuredDomain = config('services.whatsapp.website_domain');
+        if (!empty($configuredDomain)) {
+            return strtolower(trim($configuredDomain));
+        }
+
+        // 2. HTTP Request host (if running inside a web request)
+        if (!app()->runningInConsole() && function_exists('request') && request()) {
+            $host = request()->getHost();
+            if (!empty($host) && !in_array($host, ['localhost', '127.0.0.1', '::1'])) {
+                return strtolower($host);
+            }
+        }
+
+        // 3. APP_URL from configuration
+        $appUrl = config('app.url');
+        if (!empty($appUrl)) {
+            $host = parse_url($appUrl, PHP_URL_HOST);
+            if (!empty($host) && !in_array($host, ['localhost', '127.0.0.1', '::1'])) {
+                return strtolower($host);
+            }
+        }
+
+        // 4. Default to official Vama Invoice website domain
+        return 'invoice.vamalabs.in';
     }
 
     /**
-     * Build standard headers for sidecar communication including website and app identity
+     * Get a filesystem and session safe slug based purely on the website domain.
+     * e.g. 'invoice.vamalabs.in' -> 'invoice_vamalabs_in'
+     */
+    public function getWebsiteSlug(): string
+    {
+        $domain = $this->getWebsiteDomain();
+        return preg_replace('/[^a-zA-Z0-9]/', '_', strtolower($domain)) ?: 'invoice_vamalabs_in';
+    }
+
+    /**
+     * Build standard headers for sidecar communication including website domain identity
      */
     public function getSidecarHeaders(): array
     {
+        $domain = $this->getWebsiteDomain();
         return [
             'X-Whatsapp-Secret' => $this->secret,
-            'X-App-Id' => $this->appId,
-            'X-Website-Origin' => config('app.url', url('/')),
+            'X-Website-Domain' => $domain,
+            'X-Website-Origin' => 'https://' . $domain,
         ];
     }
 
@@ -91,13 +122,14 @@ class WhatsAppService
     }
 
     /**
-     * Resolve session identifier for a merchant with website namespace prefix
-     * e.g., 'invoice_merchant_21' or 'inventory_merchant_21'
+     * Resolve session identifier for a merchant isolated by website domain
+     * e.g., 'invoice_vamalabs_in_merchant_1' or 'inventory_vamalabs_in_merchant_1'
      */
     public function getSessionId(?int $merchantId = null): string
     {
         $ownerId = $this->resolveOwnerId($merchantId);
-        return "{$this->appId}_merchant_{$ownerId}";
+        $siteSlug = $this->getWebsiteSlug();
+        return "{$siteSlug}_merchant_{$ownerId}";
     }
 
     /**

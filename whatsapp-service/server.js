@@ -80,7 +80,32 @@ if (!fs.existsSync(SESSIONS_DIR)) {
 const sessions = new Map();
 
 /**
- * Authentication Middleware using shared secret and website/app origin extraction
+ * Extract clean hostname/domain from URL, host header, or referer
+ * e.g., 'https://invoice.vamalabs.in/test' -> 'invoice.vamalabs.in'
+ */
+function extractDomain(input) {
+    if (!input || typeof input !== 'string') return '';
+    try {
+        let str = input.trim();
+        if (str.includes('://')) {
+            return new URL(str).hostname.toLowerCase();
+        }
+        return str.split(':')[0].toLowerCase().trim();
+    } catch {
+        return input.toLowerCase().trim();
+    }
+}
+
+/**
+ * Generate slug from domain, e.g. 'invoice.vamalabs.in' -> 'invoice_vamalabs_in'
+ */
+function domainToSlug(domain) {
+    if (!domain) return '';
+    return domain.toLowerCase().replace(/[^a-z0-9]/g, '_');
+}
+
+/**
+ * Authentication Middleware using shared secret and website domain extraction
  */
 const authMiddleware = (req, res, next) => {
     const providedSecret = req.headers['x-whatsapp-secret'] || req.query.secret;
@@ -91,38 +116,46 @@ const authMiddleware = (req, res, next) => {
         });
     }
 
-    // Extract calling website/app namespace and origin for tenant isolation
-    req.callingAppId = (req.headers['x-app-id'] || req.query.app_id || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    req.websiteOrigin = req.headers['x-website-origin'] || req.headers['origin'] || req.headers['referer'] || '';
+    // Extract calling website domain directly (purely website-based, no app id required)
+    const rawDomain = req.headers['x-website-domain'] || req.headers['x-website-origin'] || req.headers['origin'] || req.headers['referer'] || req.query.domain || '';
+    req.websiteDomain = extractDomain(rawDomain);
+    req.websiteSlug = domainToSlug(req.websiteDomain);
 
     next();
 };
 
 /**
  * Strict Multi-Website Isolation Middleware:
- * Verifies that the requested session matches the calling website's namespace.
- * Prevents Vama Inventory from accessing or sending through Vama Invoice WhatsApp sessions.
+ * Verifies that the requested session matches the calling website's domain slug.
+ * Prevents Vama Inventory (inventory.vamalabs.in) from accessing or sending through
+ * Vama Invoice (invoice.vamalabs.in) WhatsApp sessions.
  */
 const verifySessionAccess = (req, res, next) => {
     const sessionId = req.params.id;
-    const callingAppId = req.callingAppId;
+    const callingDomain = req.websiteDomain;
+    const callingSlug = req.websiteSlug;
 
-    if (sessionId && callingAppId) {
-        const parts = sessionId.split('_');
-        if (parts.length >= 2) {
-            const sessionAppPrefix = parts[0].toLowerCase();
-            if (sessionAppPrefix !== callingAppId && (sessionAppPrefix === 'invoice' || sessionAppPrefix === 'inventory' || sessionAppPrefix.startsWith('app'))) {
-                logger.warn({
-                    callingAppId,
-                    websiteOrigin: req.websiteOrigin,
-                    targetSession: sessionId
-                }, 'SECURITY ALERT: Cross-website session access attempt blocked');
+    if (sessionId && callingSlug && !['localhost', '127_0_0_1'].includes(callingSlug)) {
+        const isInvoiceSession = sessionId.includes('invoice_vamalabs_in');
+        const isInventorySession = sessionId.includes('inventory_vamalabs_in');
 
-                return res.status(403).json({
-                    success: false,
-                    error: `Access Denied: Website/App '${callingAppId}' cannot access session '${sessionId}' belonging to '${sessionAppPrefix}'. Each website must use its own isolated sessions.`
-                });
-            }
+        const isCallingInvoice = callingSlug.includes('invoice');
+        const isCallingInventory = callingSlug.includes('inventory');
+
+        if (isInvoiceSession && !isCallingInvoice) {
+            logger.warn({ callingDomain, targetSession: sessionId }, 'SECURITY: Blocked unauthorized cross-website session access');
+            return res.status(403).json({
+                success: false,
+                error: `Access Denied: Website '${callingDomain}' is not authorized to access session '${sessionId}' belonging to invoice.vamalabs.in`
+            });
+        }
+
+        if (isInventorySession && !isCallingInventory) {
+            logger.warn({ callingDomain, targetSession: sessionId }, 'SECURITY: Blocked unauthorized cross-website session access');
+            return res.status(403).json({
+                success: false,
+                error: `Access Denied: Website '${callingDomain}' is not authorized to access session '${sessionId}' belonging to inventory.vamalabs.in`
+            });
         }
     }
     next();
@@ -692,20 +725,21 @@ app.delete('/sessions/:id/logout', async (req, res) => {
 
 /**
  * Multi-Website Registry for Automated Reminders:
+ * Identified strictly by Website Domain (e.g. invoice.vamalabs.in).
  * Ensures only websites that want automated reminders (Vama Invoice) receive them,
  * while websites without reminders (Vama Inventory) are strictly excluded.
  */
 const REGISTERED_WEBSITES = [
     {
-        appId: 'invoice',
+        domain: 'invoice.vamalabs.in',
         name: 'Vama Invoice',
-        url: process.env.INVOICE_APP_URL || process.env.LARAVEL_URL || process.env.APP_URL || 'https://vamalabs.in/invoice',
+        url: process.env.INVOICE_APP_URL || 'https://invoice.vamalabs.in',
         remindersEnabled: process.env.INVOICE_REMINDERS_ENABLED !== 'false' // default true for Vama Invoice
     },
     {
-        appId: 'inventory',
+        domain: 'inventory.vamalabs.in',
         name: 'Vama Inventory',
-        url: process.env.INVENTORY_APP_URL || null,
+        url: process.env.INVENTORY_APP_URL || 'https://inventory.vamalabs.in',
         remindersEnabled: process.env.INVENTORY_REMINDERS_ENABLED === 'true' // default false for Vama Inventory
     }
 ];
@@ -713,34 +747,34 @@ const REGISTERED_WEBSITES = [
 /**
  * Trigger reminders for registered websites with reminders enabled
  */
-async function triggerLaravelReminders(type = 'all', targetApp = null) {
+async function triggerLaravelReminders(type = 'all', targetDomain = null) {
     const cronSecret = process.env.CRON_SECRET || SECRET;
 
-    // Filter registered websites that have reminders enabled (or match targetApp if specified)
+    // Filter registered websites that have reminders enabled (or match targetDomain if specified)
     const targetWebsites = REGISTERED_WEBSITES.filter(site => {
-        if (targetApp && site.appId !== targetApp) return false;
+        if (targetDomain && site.domain !== targetDomain) return false;
         return site.remindersEnabled && site.url;
     });
 
     if (targetWebsites.length === 0) {
-        logger.info({ type, targetApp }, 'No registered websites have reminders enabled. Skipping auto-reminder dispatch.');
+        logger.info({ type, targetDomain }, 'No registered websites have reminders enabled. Skipping auto-reminder dispatch.');
         return { success: true, dispatched: 0 };
     }
 
     const results = [];
 
     for (const site of targetWebsites) {
-        logger.info({ appId: site.appId, siteName: site.name, url: site.url, type }, `Dispatching reminder cron request to ${site.name}...`);
+        logger.info({ domain: site.domain, siteName: site.name, url: site.url, type }, `Dispatching reminder cron request to ${site.name} (${site.domain})...`);
 
         // 1. Try via HTTP endpoint
         try {
             const cleanBaseUrl = site.url.replace(/\/+$/, '');
-            const targetUrl = `${cleanBaseUrl}/cron/send-reminders?token=${encodeURIComponent(cronSecret)}&type=${type}&app_id=${site.appId}`;
+            const targetUrl = `${cleanBaseUrl}/cron/send-reminders?token=${encodeURIComponent(cronSecret)}&type=${type}&domain=${encodeURIComponent(site.domain)}`;
 
             const response = await fetch(targetUrl, {
                 headers: {
                     'X-Cron-Secret': cronSecret,
-                    'X-App-Id': site.appId,
+                    'X-Website-Domain': site.domain,
                     'X-Website-Origin': site.url,
                     'Accept': 'application/json'
                 }
@@ -748,18 +782,18 @@ async function triggerLaravelReminders(type = 'all', targetApp = null) {
 
             if (response.ok) {
                 const data = await response.json();
-                logger.info({ appId: site.appId, type, data }, `✓ Automated reminder dispatch completed for ${site.name}`);
-                results.push({ appId: site.appId, status: 'ok', data });
+                logger.info({ domain: site.domain, type, data }, `✓ Automated reminder dispatch completed for ${site.name}`);
+                results.push({ domain: site.domain, status: 'ok', data });
                 continue;
             } else {
-                logger.warn({ appId: site.appId, status: response.status, statusText: response.statusText }, `Web cron endpoint returned non-200 for ${site.name}`);
+                logger.warn({ domain: site.domain, status: response.status, statusText: response.statusText }, `Web cron endpoint returned non-200 for ${site.name}`);
             }
         } catch (httpErr) {
-            logger.warn({ appId: site.appId, err: httpErr.message }, `Could not reach ${site.name} web cron endpoint; checking local artisan fallback...`);
+            logger.warn({ domain: site.domain, err: httpErr.message }, `Could not reach ${site.name} web cron endpoint; checking local artisan fallback...`);
         }
 
         // 2. Local fallback if on same server (local execution for invoice only)
-        if (site.appId === 'invoice') {
+        if (site.domain === 'invoice.vamalabs.in') {
             try {
                 const { exec } = await import('child_process');
                 const artisanPath = path.resolve(__dirname, '../artisan');
@@ -776,7 +810,7 @@ async function triggerLaravelReminders(type = 'all', targetApp = null) {
                             logger.info({ stdout: stdout.trim() }, '✓ Artisan reminder executed successfully via Node');
                         }
                     });
-                    results.push({ appId: site.appId, status: 'artisan_executed' });
+                    results.push({ domain: site.domain, status: 'artisan_executed' });
                 }
             } catch (cliErr) {
                 logger.error({ err: cliErr.message }, 'Error in local artisan execution fallback');
@@ -790,14 +824,14 @@ async function triggerLaravelReminders(type = 'all', targetApp = null) {
 /**
  * Automated WhatsApp Reminder Scheduler for India Standard Time (Asia/Kolkata)
  * Runs 24/7 inside Node.js:
- *  - 2:35 PM IST (14:35) -> Sales Reminders (PDF + UPI QR + Review QR)
- *  - 2:36 PM IST (14:36) -> Purchase Reminders (Statement PDF only)
+ *  - 6:00 PM IST (18:00) -> Customer Sales Invoices Reminders (PDF + UPI QR + Review QR)
+ *  - 6:00 PM IST (18:00) -> Admin Purchase Bills Reminders (Statement PDF only)
  */
 let lastTriggeredDateSales = null;
 let lastTriggeredDatePurchase = null;
 
 function startReminderCron() {
-    logger.info('🕒 Automated WhatsApp Reminder Cron started (Target: 2:35 PM IST for Sales, 2:36 PM IST for Purchases)');
+    logger.info('🕒 Automated WhatsApp Reminder Cron started (Target: 6:00 PM IST for Sales Reminders & 6:00 PM IST for Purchase Reminders)');
 
     setInterval(async () => {
         try {
@@ -809,17 +843,17 @@ function startReminderCron() {
             const hour = parseInt(hourStr, 10);
             const minute = parseInt(minuteStr, 10);
 
-            // 1. Sales Invoices Due Reminders: Exactly 2:35 PM IST (14:35)
-            if (hour === 14 && minute === 35 && lastTriggeredDateSales !== istDateStr) {
+            // 1. Sales Invoices Due Reminders: Exactly 6:00 PM IST (18:00)
+            if (hour === 18 && minute === 0 && lastTriggeredDateSales !== istDateStr) {
                 lastTriggeredDateSales = istDateStr;
-                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 2:35 PM IST! Triggering Customer Sales Reminders...');
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:00 PM IST! Triggering Customer Sales Reminders for invoice.vamalabs.in...');
                 await triggerLaravelReminders('sales');
             }
 
-            // 2. Purchase Bills Due Reminders: Exactly 2:36 PM IST (14:36)
-            if (hour === 14 && minute === 36 && lastTriggeredDatePurchase !== istDateStr) {
+            // 2. Purchase Bills Due Reminders: Exactly 6:00 PM IST (18:00)
+            if (hour === 18 && minute === 0 && lastTriggeredDatePurchase !== istDateStr) {
                 lastTriggeredDatePurchase = istDateStr;
-                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 2:36 PM IST! Triggering Admin Purchase Reminders...');
+                logger.info({ istTimeStr, istDateStr }, '⏰ [Node Cron] It is 6:00 PM IST! Triggering Admin Purchase Reminders for invoice.vamalabs.in...');
                 await triggerLaravelReminders('purchases');
             }
         } catch (cronErr) {

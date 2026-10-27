@@ -205,14 +205,17 @@ Route::get('/clear-cache', function (\Illuminate\Http\Request $request) {
 
 // Web Cron / Trigger Route for automated WhatsApp due payment & purchase reminders (Token-Protected)
 Route::match(['GET', 'POST'], '/cron/send-reminders', function (\Illuminate\Http\Request $request) {
-    // 1. Website & App Identity Verification (Prevents cross-website trigger collisions)
-    $callingApp = (string) ($request->header('X-App-Id') ?: $request->query('app_id', ''));
-    $myAppId = (string) (config('services.whatsapp.app_id') ?: env('WHATSAPP_APP_ID', 'invoice'));
-    if ($callingApp !== '' && strtolower($callingApp) !== strtolower($myAppId)) {
-        return response()->json([
-            'success' => false,
-            'error' => "Unauthorized: Cron request meant for '{$callingApp}', but this website is '{$myAppId}'.",
-        ], 403);
+    // 1. Website Domain Verification (Ensures reminder request matches this website)
+    $callingDomain = (string) ($request->header('X-Website-Domain') ?: ($request->query('domain') ?: ($request->header('X-Website-Origin') ?: $request->query('origin', ''))));
+    if (!empty($callingDomain)) {
+        $cleanCalling = parse_url($callingDomain, PHP_URL_HOST) ?: $callingDomain;
+        $myDomain = app(\App\Services\WhatsAppService::class)->getWebsiteDomain();
+        if (strtolower($cleanCalling) !== strtolower($myDomain) && !str_contains(strtolower($cleanCalling), 'localhost') && !str_contains(strtolower($cleanCalling), '127.0.0.1')) {
+            return response()->json([
+                'success' => false,
+                'error' => "Unauthorized: Cron request meant for website domain '{$cleanCalling}', but this website is '{$myDomain}'.",
+            ], 403);
+        }
     }
 
     // 2. Secret & Token Verification
